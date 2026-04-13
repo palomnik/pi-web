@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { useAppStore } from '../../stores/appStore';
-import { Plus, X, PlusCircle } from 'lucide-react';
+import { X, PlusCircle } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 
 export default function TerminalPanel() {
@@ -29,8 +29,9 @@ export default function TerminalPanel() {
     terminalSessions.forEach((sessionId) => {
       if (terminalRefs.current.has(sessionId)) return;
 
-      const container = document.getElementById(`terminal-${sessionId}`);
-      if (!container) return;
+      const containerEl = document.getElementById(`terminal-${sessionId}`);
+      if (!containerEl) return;
+      const container = containerEl as HTMLDivElement;
 
       const terminal = new Terminal({
         theme: {
@@ -38,7 +39,7 @@ export default function TerminalPanel() {
           foreground: '#e0e0e0',
           cursor: '#6c63ff',
           cursorAccent: '#1a1a2e',
-          selection: 'rgba(108, 99, 255, 0.3)',
+          selectionBackground: 'rgba(108, 99, 255, 0.3)',
           black: '#000000',
           red: '#ff5555',
           green: '#50fa7b',

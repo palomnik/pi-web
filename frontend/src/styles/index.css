@@ -107,5 +107,5 @@ code {
 }
 
 .file-tree-item.active {
-  @apply bg-pi-accent/20;
+  background-color: rgba(108, 99, 255, 0.2);
 }

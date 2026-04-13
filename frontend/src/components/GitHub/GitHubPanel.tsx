@@ -2,14 +2,9 @@ import { useState, useEffect } from 'react';
 import {
   GitBranch,
   GitCommit,
-  GitPullRequest,
-  GitMerge,
   Upload,
   Download,
   RefreshCw,
-  Check,
-  X,
-  ChevronRight,
 } from 'lucide-react';
 
 interface GitStatus {
@@ -122,12 +117,12 @@ export default function GitHubPanel() {
           <span className="font-semibold">
             {status?.branch || 'No repository'}
           </span>
-          {status?.aheadBehind.ahead > 0 && (
+          {status?.aheadBehind?.ahead && status.aheadBehind.ahead > 0 && (
             <span className="text-xs bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded">
               ↑{status.aheadBehind.ahead}
             </span>
           )}
-          {status?.aheadBehind.behind > 0 && (
+          {status?.aheadBehind?.behind && status.aheadBehind.behind > 0 && (
             <span className="text-xs bg-orange-600/20 text-orange-400 px-2 py-0.5 rounded">
               ↓{status.aheadBehind.behind}
             </span>

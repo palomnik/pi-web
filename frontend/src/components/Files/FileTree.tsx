@@ -10,11 +10,14 @@ import {
   ChevronDown,
 } from 'lucide-react';
 
-interface FileItem {
+export interface FileItem {
   name: string;
   type: 'file' | 'directory' | 'symlink';
   path: string;
   size: number;
+  modified?: string;
+  permissions?: string;
+  isHidden?: boolean;
 }
 
 interface Props {

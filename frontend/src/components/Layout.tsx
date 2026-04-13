@@ -19,7 +19,7 @@ const navItems = [
 
 export default function Layout() {
   const location = useLocation();
-  const { connected, showTerminal, showFiles, showGitHub } = useAppStore();
+  const { connected } = useAppStore();
 
   return (
     <div className="flex h-screen w-screen bg-pi-bg">

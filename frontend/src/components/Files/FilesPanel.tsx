@@ -1,35 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../../stores/appStore';
-import FileTree from './FileTree';
+import FileTree, { FileItem } from './FileTree';
 import FileEditor from './FileEditor';
 import {
   RefreshCw,
-  Upload,
-  Download,
   FolderPlus,
   FilePlus,
-  Trash2,
-  ChevronLeft,
-  ChevronRight,
 } from 'lucide-react';
-
-interface FileItem {
-  name: string;
-  type: 'file' | 'directory' | 'symlink';
-  path: string;
-  size: number;
-  modified: string;
-  permissions: string;
-  isHidden: boolean;
-}
 
 export default function FilesPanel() {
   const { currentPath, setCurrentPath } = useAppStore();
   const [files, setFiles] = useState<FileItem[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showHidden, setShowHidden] = useState(false);
-  const [viewMode, setViewMode] = useState<'tree' | 'list'>('tree');
 
   // Fetch files for current path
   const fetchFiles = async () => {
@@ -96,35 +79,7 @@ export default function FilesPanel() {
     }
   };
 
-  const handleDelete = async (path: string) => {
-    if (!confirm(`Delete ${path}?`)) return;
-
-    try {
-      const response = await fetch('/api/files/delete', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
-      });
-      if (response.ok) {
-        fetchFiles();
-        if (selectedFile === path) {
-          setSelectedFile(null);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to delete:', error);
-    }
-  };
-
-  const filteredFiles = showHidden
-    ? files
-    : files.filter((f) => !f.isHidden);
-
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes}B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-    return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-  };
+  const filteredFiles = files;
 
   return (
     <div className="flex-1 flex h-full">

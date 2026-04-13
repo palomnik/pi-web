@@ -9,7 +9,7 @@ import GitHubPanel from './components/GitHub/GitHubPanel';
 import SettingsPage from './components/Settings/SettingsPage';
 
 function App() {
-  const { theme, setTheme, setConnected } = useAppStore();
+  const { theme, setConnected } = useAppStore();
 
   // Apply theme on mount
   useEffect(() => {
