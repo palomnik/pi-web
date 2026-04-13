@@ -2,6 +2,26 @@
 
 This document summarizes the fixes applied to resolve build and installation issues.
 
+## Critical Fix: Extension Discovery
+
+The package was not being recognized by Pi after installation.
+
+**Problem:** Pi couldn't find the extension because `package.json` used the wrong format:
+```json
+"piConfig": {
+  "provides": { "extensions": ["extension"] }
+}
+```
+
+**Solution:** Pi expects a `pi` field with an `extensions` array containing paths to extension entry points:
+```json
+"pi": {
+  "extensions": ["./dist/extension.js"]
+}
+```
+
+---
+
 ## Issue
 
 The package failed to install correctly from GitHub due to:
