@@ -1,0 +1,28 @@
+# Pi Web Interface - Caddy Configuration
+#
+# Use this Caddyfile to expose the Pi Web interface
+# with HTTPS and reverse proxy support.
+#
+# Usage:
+#   caddy run --config Caddyfile
+
+pi.local {
+    tls internal
+    
+    # Rate limiting
+    rate_limit {
+        zone dynamic
+        key {remote_host}
+        events 100
+        window 1m
+    }
+    
+    # Reverse proxy to Pi Web backend
+    reverse_proxy localhost:3300
+}
+
+# Alternative configuration using a different domain
+# pi.example.com {
+#     tls your-email@example.com
+#     reverse_proxy localhost:3300
+# }

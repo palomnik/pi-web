@@ -1,0 +1,86 @@
+{
+  "name": "pi-web",
+  "version": "1.0.0",
+  "description": "Web interface for Pi coding agent - provides browser-based chat, terminal, and file management",
+  "type": "module",
+  "main": "./dist/extension.js",
+  "types": "./dist/extension.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/extension.d.ts",
+      "import": "./dist/extension.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.js"
+    }
+  },
+  "bin": {
+    "pi-web": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.extension.json",
+    "build:frontend": "cd frontend && npm run build",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:frontend\"",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:frontend": "cd frontend && npm run dev",
+    "start": "node dist/cli.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "pi",
+    "coding-agent",
+    "web-interface",
+    "ai",
+    "llm",
+    "terminal",
+    "chat"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/palomnik/pi-web"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": ">=0.66.0"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.16.0",
+    "node-pty": "^1.0.0",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "uuid": "^9.0.1",
+    "chokidar": "^3.5.3",
+    "highlight.js": "^11.9.0",
+    "marked": "^11.1.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/ws": "^8.5.10",
+    "@types/node": "^20.10.6",
+    "@types/cors": "^2.8.17",
+    "@types/uuid": "^9.0.7",
+    "typescript": "^5.3.3",
+    "tsx": "^4.7.0",
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "piConfig": {
+    "name": "pi-web",
+    "provides": {
+      "extensions": ["extension"],
+      "skills": [],
+      "prompts": [],
+      "themes": []
+    }
+  }
+}

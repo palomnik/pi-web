@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Dark theme (default) */
+  --bg: #1a1a2e;
+  --bg-secondary: #16162a;
+  --text: #e0e0e0;
+  --text-secondary: #888;
+  --border: #2a2a4a;
+  --accent: #6c63ff;
+  --accent-hover: #5a52e0;
+}
+
+.light {
+  --bg: #ffffff;
+  --bg-secondary: #f5f5f5;
+  --text: #1a1a1a;
+  --text-secondary: #666;
+  --border: #e0e0e0;
+  --accent: #5a52e0;
+  --accent-hover: #4a42d0;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+#root {
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Terminal styles */
+.xterm {
+  padding: 8px;
+}
+
+/* Scrollbar styles */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* Code/markdown styles */
+pre {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 16px;
+  overflow-x: auto;
+}
+
+code {
+  font-family: 'SF Mono', 'Fira Code', 'Monaco', monospace;
+  font-size: 0.9em;
+}
+
+/* Animation utilities */
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 2s ease-in-out infinite;
+}
+
+/* Panel resize handle */
+.resize-handle {
+  width: 4px;
+  background: transparent;
+  cursor: col-resize;
+  transition: background 0.2s;
+}
+
+.resize-handle:hover {
+  background: var(--accent);
+}
+
+/* File tree styles */
+.file-tree-item {
+  @apply flex items-center gap-2 px-2 py-1 rounded hover:bg-pi-bg-secondary cursor-pointer;
+}
+
+.file-tree-item.active {
+  @apply bg-pi-accent/20;
+}
