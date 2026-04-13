@@ -6,7 +6,7 @@
  */
 
 import express from 'express';
-import { createServer } from 'http';
+import { createServer as createHttpServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -43,7 +43,7 @@ export interface PiWebConfig {
 export interface PiWebServer {
   config: PiWebConfig;
   app: express.Application;
-  server: ReturnType<typeof createServer>;
+  server: ReturnType<typeof createHttpServer>;
   wss: WebSocketServer;
   sessionManager: SessionManager;
   piBridge: PiBridge;
@@ -58,8 +58,8 @@ export interface PiWebServer {
  */
 export function createPiWebServer(config: PiWebConfig): PiWebServer {
   const app = express();
-  const server = createServer(app);
-  const wss = new WebSocketServer({ server });
+  const httpServer = createHttpServer(app);
+  const wss = new WebSocketServer({ server: httpServer });
   
   // Initialize services
   const sessionManager = new SessionManager();
@@ -139,8 +139,8 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
     // Send initial state
     ws.send(JSON.stringify({
       type: 'connected',
-      clientId,
-      piConnected: piBridge.isConnected(),
+      clientId: clientId,
+      piConnected: piBridge.isConnected()
     }));
   });
 
@@ -160,7 +160,7 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
   return {
     config,
     app,
-    server,
+    server: httpServer,
     wss,
     sessionManager,
     piBridge,
@@ -168,7 +168,7 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
     
     async start() {
       return new Promise((resolve) => {
-        server.listen(config.port, config.host, () => {
+        httpServer.listen(config.port, config.host, () => {
           serverRunning = true;
           console.log(`[Pi Web] Server started on http://${config.host}:${config.port}`);
           resolve();
@@ -179,7 +179,7 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
     async stop() {
       return new Promise((resolve) => {
         wss.clients.forEach((client) => client.close());
-        server.close(() => {
+        httpServer.close(() => {
           serverRunning = false;
           console.log('[Pi Web] Server stopped');
           resolve();
@@ -207,18 +207,18 @@ async function handleWebSocketMessage(
     case 'chat':
       // Stream chat messages from Pi
       await piBridge.streamChat(message.content, message.sessionId, (chunk) => {
-        ws.send(JSON.stringify({ type: 'chat-chunk', ...chunk }));
+        ws.send(JSON.stringify({ type: 'chat-chunk', chunk }));
       });
       break;
 
     case 'terminal-input':
       // Forward terminal input to PTY
-      sessionManager.sendTerminalInput(clientId, message.data);
+      sessionManager.sendTerminalInput(clientId, message.sessionId, message.data);
       break;
 
     case 'terminal-resize':
       // Resize PTY
-      sessionManager.resizeTerminal(clientId, message.cols, message.rows);
+      sessionManager.resizeTerminal(clientId, message.sessionId, message.cols, message.rows);
       break;
 
     case 'subscribe':
@@ -239,7 +239,7 @@ async function handleWebSocketMessage(
 /**
  * Create Pi Web server instance (for extension use)
  */
-export async function createServer(config: PiWebConfig): Promise<PiWebServer> {
+export async function createPiWebServerInstance(config: PiWebConfig): Promise<PiWebServer> {
   const server = createPiWebServer(config);
   await server.start();
   return server;

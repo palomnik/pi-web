@@ -30,6 +30,7 @@
     "dev:server": "tsx watch src/server/index.ts",
     "dev:frontend": "cd frontend && npm run dev",
     "start": "node dist/cli.js",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

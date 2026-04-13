@@ -163,7 +163,9 @@ const piWebExtension: ExtensionFactory = (pi) => {
 
       if (parsedArgs.config) {
         // Show or configure
-        if (Object.keys(parsedArgs).filter(k => !['config', 'port', 'host', 'auth', 'noAuth']).length === 0) {
+        const configKeys = ['config', 'port', 'host', 'auth', 'noAuth'] as const;
+        const hasOnlyConfigKeys = Object.keys(parsedArgs).every(k => configKeys.includes(k as any));
+        if (hasOnlyConfigKeys) {
           // Just show config
           const config = serverConfig || await loadConfig();
           ctx.ui.notify(
@@ -227,7 +229,7 @@ const piWebExtension: ExtensionFactory = (pi) => {
   });
 
   // Register a keyboard shortcut to toggle the web interface
-  pi.registerShortcut('Ctrl+W', {
+  pi.registerShortcut('ctrl+w', {
     description: 'Toggle Pi Web interface',
     handler: async (ctx) => {
       if (server?.isRunning()) {

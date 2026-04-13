@@ -1,6 +1,7 @@
 # Development files
 backend/
-frontend/
+frontend/dist/
+frontend/.vite/
 *.test.ts
 *.spec.ts
 __tests__/
@@ -23,7 +24,10 @@ pi-web-interface-plan.md
 pi-web-interface-plan.md.plist
 Caddyfile
 
-# Keep these
+# Config
+.pi/
+
+# Keep these in the package
 !dist/
 !README.md
 !LICENSE
