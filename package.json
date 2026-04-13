@@ -75,13 +75,7 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "piConfig": {
-    "name": "pi-web",
-    "provides": {
-      "extensions": ["extension"],
-      "skills": [],
-      "prompts": [],
-      "themes": []
-    }
+  "pi": {
+    "extensions": ["./dist/extension.js"]
   }
 }
