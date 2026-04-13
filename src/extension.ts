@@ -16,7 +16,7 @@
  *   /pi-web config   - Show configuration
  * 
  * Keyboard Shortcut:
- *   Ctrl+W - Toggle web interface on/off
+ *   Ctrl+Shift+W - Toggle web interface on/off
  * 
  * CLI Flag:
  *   pi --web         - Start Pi with web interface enabled
@@ -229,7 +229,8 @@ const piWebExtension: ExtensionFactory = (pi) => {
   });
 
   // Register a keyboard shortcut to toggle the web interface
-  pi.registerShortcut('ctrl+w', {
+  // Note: Using ctrl+shift+w to avoid conflict with built-in ctrl+w (deleteWordBackward)
+  pi.registerShortcut('ctrl+shift+w', {
     description: 'Toggle Pi Web interface',
     handler: async (ctx) => {
       if (server?.isRunning()) {

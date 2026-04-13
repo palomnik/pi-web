@@ -54,7 +54,7 @@ npx pi-web --host 0.0.0.0     # Bind to all interfaces
 
 ### Keyboard Shortcut
 
-- `Ctrl+W` - Toggle web interface on/off
+- `Ctrl+Shift+W` - Toggle web interface on/off
 
 ### CLI Flag
 
