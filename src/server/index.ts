@@ -62,7 +62,7 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
   const wss = new WebSocketServer({ server: httpServer });
   
   // Initialize services
-  const sessionManager = new SessionManager();
+  const sessionManager = new SessionManager(config.pi.cwd);
   const piBridge = new PiBridge(config.pi.cwd, config.pi.env);
   const authService = new AuthService(config.auth);
 
@@ -266,9 +266,44 @@ async function handleWebSocketMessage(
       sessionManager.sendTerminalInput(clientId, message.sessionId, message.data);
       break;
 
+    case 'terminal-create':
+      // Create a new PTY session
+      const termSession = sessionManager.createTerminalSession(clientId, {
+        cols: message.cols || 80,
+        rows: message.rows || 24,
+        cwd: message.cwd,
+        shell: message.shell,
+      });
+      
+      if (termSession) {
+        ws.send(JSON.stringify({
+          type: 'terminal-created',
+          sessionId: termSession.id,
+          cols: termSession.cols,
+          rows: termSession.rows,
+          shell: termSession.shell,
+        }));
+      } else {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Failed to create terminal session',
+        }));
+      }
+      break;
+
     case 'terminal-resize':
       // Resize PTY
       sessionManager.resizeTerminal(clientId, message.sessionId, message.cols, message.rows);
+      break;
+
+    case 'terminal-kill':
+      // Kill a terminal session
+      const killed = sessionManager.killTerminalSession(clientId, message.sessionId);
+      ws.send(JSON.stringify({
+        type: 'terminal-killed',
+        sessionId: message.sessionId,
+        success: killed,
+      }));
       break;
 
     case 'subscribe':
