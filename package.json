@@ -21,17 +21,19 @@
   "files": [
     "dist",
     "README.md",
+    "INSTALL.md",
     "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.extension.json",
-    "build:frontend": "cd frontend && npm run build",
+    "build:frontend": "cd frontend && npm install && npm run build",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:frontend\"",
     "dev:server": "tsx watch src/server/index.ts",
     "dev:frontend": "cd frontend && npm run dev",
     "start": "node dist/cli.js",
     "prepare": "npm run build",
-    "prepublishOnly": "npm run build"
+    "postinstall": "npm run build:frontend",
+    "prepublishOnly": "npm run build && npm run build:frontend"
   },
   "keywords": [
     "pi",
