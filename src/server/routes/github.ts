@@ -19,7 +19,7 @@ export function createGitHubRouter(): Router {
    * Helper to run git commands
    */
   const runGit = async (args: string[], cwd = process.cwd()): Promise<string> => {
-    const { stdout } = await execAsync(`git ${args.join(' ')}`, { cwd });
+    const { stdout } = await execAsync(`git ${args.join(' ')}`, { cwd, shell: '/bin/bash' });
     return stdout.trim();
   };
 
@@ -65,7 +65,7 @@ export function createGitHubRouter(): Router {
 
       const log = await runGit([
         'log',
-        `--pretty=format:%H|%h|%an|%ae|%at|%s`,
+        `--pretty=format:'%H|%h|%an|%ae|%at|%s'`,
         `-${limit}`,
       ], cwd);
 
@@ -190,7 +190,7 @@ export function createGitHubRouter(): Router {
     try {
       const cwd = req.query.cwd as string || process.cwd();
 
-      const branches = await runGit(['branch', '-a', '--format=%(refname:short)|%(HEAD)|%(objectname:short)'], cwd);
+      const branches = await runGit(['branch', '-a', '--format="%(refname:short)|%(HEAD)|%(objectname:short)"'], cwd);
 
       const list = branches.split('\n').filter(Boolean).map(line => {
         const [name, current, hash] = line.split('|');
