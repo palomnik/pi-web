@@ -223,7 +223,7 @@ const piWebExtension: ExtensionFactory = (pi) => {
         // Show status in footer
         ctx.ui.setStatus('pi-web', `\u{1F310} Web: ${serverConfig.port}`);
       } catch (error) {
-        ctx.ui.notify(`Failed to start Pi Web: ${error}`, 'error');
+        const errorMessage = error instanceof Error ? error.message : String(error); if (errorMessage.includes('already in use')) { ctx.ui.notify(`Pi Web port ${serverConfig?.port || 3300} is already in use. Is another instance running?`, 'error'); } else { ctx.ui.notify(`Failed to start Pi Web: ${error}`, 'error'); }
       }
     },
   });

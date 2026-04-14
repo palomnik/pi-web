@@ -157,13 +157,17 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
 
   let serverRunning = false;
 
-  // Try to connect to Pi on startup
-  piBridge.connect().then(() => {
-    console.log('[Pi Web] Connected to Pi');
-  }).catch((err) => {
-    console.log('[Pi Web] Could not connect to Pi:', err.message);
-    console.log('[Pi Web] Chat will be limited. Start Pi CLI for full functionality.');
-  });
+  // Try to connect to Pi on startup (only when running standalone)
+  // When running as extension from Pi, Pi is already the parent process
+  const isStandalone = !process.env.PI_SESSION;
+  if (isStandalone) {
+    piBridge.connect().then(() => {
+      console.log('[Pi Web] Connected to Pi');
+    }).catch((err) => {
+      console.log('[Pi Web] Could not connect to Pi:', err.message);
+      console.log('[Pi Web] Chat will be limited. Start Pi CLI for full functionality.');
+    });
+  }
 
   return {
     config,
@@ -175,7 +179,18 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
     authService,
     
     async start() {
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
+        httpServer.once('error', (err: NodeJS.ErrnoException) => {
+          if (err.code === 'EADDRINUSE') {
+            console.error(`[Pi Web] Port ${config.port} is already in use.`);
+            console.error(`[Pi Web] Is another Pi Web instance running?`);
+            serverRunning = false;
+            reject(new Error(`Port ${config.port} is already in use`));
+          } else {
+            reject(err);
+          }
+        });
+        
         httpServer.listen(config.port, config.host, () => {
           serverRunning = true;
           console.log(`[Pi Web] Server started on http://${config.host}:${config.port}`);
