@@ -157,6 +157,14 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
 
   let serverRunning = false;
 
+  // Try to connect to Pi on startup
+  piBridge.connect().then(() => {
+    console.log('[Pi Web] Connected to Pi');
+  }).catch((err) => {
+    console.log('[Pi Web] Could not connect to Pi:', err.message);
+    console.log('[Pi Web] Chat will be limited. Start Pi CLI for full functionality.');
+  });
+
   return {
     config,
     app,

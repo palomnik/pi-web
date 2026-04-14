@@ -4,7 +4,7 @@
  * API routes for chat functionality.
  */
 
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { PiBridge } from '../services/pi-bridge.js';
 import { SessionManager } from '../services/session-manager.js';
 
@@ -15,7 +15,7 @@ export function createChatRouter(piBridge: PiBridge, sessionManager: SessionMana
    * POST /api/chat/message
    * Send a message to Pi
    */
-  router.post('/message', async (req, res) => {
+  router.post('/message', async (req: Request, res: Response) => {
     try {
       const { content, sessionId } = req.body;
 
@@ -23,9 +23,22 @@ export function createChatRouter(piBridge: PiBridge, sessionManager: SessionMana
         return res.status(400).json({ error: 'Content is required' });
       }
 
-      // For streaming responses, we'll use WebSocket
-      // Here we just return a session ID for the WebSocket connection
       const newSessionId = sessionId || `session-${Date.now()}`;
+
+      // Check if Pi is connected
+      if (!piBridge.isConnected()) {
+        // Try to connect
+        try {
+          await piBridge.connect();
+        } catch (err) {
+          console.error('[Chat] Failed to connect to Pi:', err);
+          return res.json({
+            sessionId: newSessionId,
+            status: 'error',
+            error: 'Pi is not connected. Start Pi CLI first or use /pi-web command in Pi.',
+          });
+        }
+      }
 
       res.json({
         sessionId: newSessionId,
