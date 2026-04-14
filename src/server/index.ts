@@ -117,7 +117,8 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
 
   // WebSocket handling
   wss.on('connection', (ws: WebSocket, req) => {
-    const clientId = uuidv4();
+    // Register client with session manager
+    const clientId = sessionManager.registerClient(ws);
     console.log(`[WS] Client connected: ${clientId}`);
 
     // Handle chat messages

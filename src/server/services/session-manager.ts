@@ -1,13 +1,15 @@
 /**
  * Session Manager
  * 
- * Manages client sessions, terminal PTYs, and file subscriptions.
+ * Manages client sessions, terminal processes, and file subscriptions.
+ * 
+ * Uses child_process.spawn as a fallback when node-pty is unavailable.
  */
 
 import { EventEmitter } from 'events';
 import { WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
-import * as pty from 'node-pty';
+import { spawn, ChildProcess } from 'child_process';
 
 export interface Client {
   id: string;
@@ -18,7 +20,7 @@ export interface Client {
 
 export interface TerminalSession {
   id: string;
-  pty: pty.IPty;
+  process: ChildProcess;
   cols: number;
   rows: number;
   cwd: string;
@@ -64,7 +66,7 @@ export class SessionManager extends EventEmitter {
     for (const [sessionId, session] of client.terminalSessions) {
       console.log(`[SessionManager] Killing terminal session: ${sessionId}`);
       try {
-        session.pty.kill();
+        session.process.kill();
       } catch (e) {
         // Ignore errors when killing
       }
@@ -112,64 +114,87 @@ export class SessionManager extends EventEmitter {
       ...process.env,
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
+      LINES: String(rows),
+      COLUMNS: String(cols),
       ...options.env,
     };
 
     try {
-      console.log(`[SessionManager] Spawning PTY: ${shell} in ${cwd}`);
+      console.log(`[SessionManager] Spawning shell: ${shell} in ${cwd}`);
       
-      const ptyProcess = pty.spawn(shell, [], {
-        name: 'xterm-256color',
-        cols,
-        rows,
+      // Use spawn with pipes for stdio
+      const shellProcess = spawn(shell, ['--login'], {
         cwd,
-        env: env as { [key: string]: string },
+        env: env as NodeJS.ProcessEnv,
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
 
       const session: TerminalSession = {
         id: sessionId,
-        pty: ptyProcess,
+        process: shellProcess,
         cols,
         rows,
         cwd,
         shell,
       };
 
-      // Handle PTY output - send to client via WebSocket
-      ptyProcess.onData((data) => {
+      // Handle stdout - send to client via WebSocket
+      shellProcess.stdout?.on('data', (data: Buffer) => {
         if (client.ws.readyState === WebSocket.OPEN) {
           client.ws.send(JSON.stringify({
             type: 'terminal-output',
             sessionId: sessionId,
-            data: data,
+            data: data.toString('utf8'),
           }));
         }
       });
 
-      // Handle PTY exit
-      ptyProcess.onExit(({ exitCode, signal }) => {
-        console.log(`[SessionManager] PTY exited: ${sessionId} (code: ${exitCode}, signal: ${signal})`);
+      // Handle stderr - send to client via WebSocket
+      shellProcess.stderr?.on('data', (data: Buffer) => {
+        if (client.ws.readyState === WebSocket.OPEN) {
+          client.ws.send(JSON.stringify({
+            type: 'terminal-output',
+            sessionId: sessionId,
+            data: data.toString('utf8'),
+          }));
+        }
+      });
+
+      // Handle process exit
+      shellProcess.on('close', (code, signal) => {
+        console.log(`[SessionManager] Shell exited: ${sessionId} (code: ${code}, signal: ${signal})`);
         
         // Send exit notification to client
         if (client.ws.readyState === WebSocket.OPEN) {
           client.ws.send(JSON.stringify({
             type: 'terminal-exit',
             sessionId: sessionId,
-            exitCode,
-            signal,
+            exitCode: code || 0,
+            signal: signal || null,
           }));
         }
 
         // Remove session
         client.terminalSessions.delete(sessionId);
-        this.emit('terminal-exit', clientId, sessionId, exitCode);
+        this.emit('terminal-exit', clientId, sessionId, code || 0);
+      });
+
+      shellProcess.on('error', (err) => {
+        console.error(`[SessionManager] Shell error: ${err.message}`);
+        if (client.ws.readyState === WebSocket.OPEN) {
+          client.ws.send(JSON.stringify({
+            type: 'terminal-output',
+            sessionId: sessionId,
+            data: `\x1b[31mError: ${err.message}\x1b[0m\r\n`,
+          }));
+        }
       });
 
       // Store session
       client.terminalSessions.set(sessionId, session);
       this.emit('terminal-created', clientId, sessionId);
       
-      console.log(`[SessionManager] Terminal session created: ${sessionId}`);
+      console.log(`[SessionManager] Terminal session created: ${sessionId} (PID: ${shellProcess.pid})`);
       return session;
     } catch (error) {
       console.error(`[SessionManager] Failed to create terminal: ${error}`);
@@ -187,7 +212,7 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
-   * Send terminal input to a PTY
+   * Send terminal input to a shell
    */
   sendTerminalInput(clientId: string, sessionId: string, data: string): void {
     const session = this.getTerminalSession(clientId, sessionId);
@@ -197,14 +222,15 @@ export class SessionManager extends EventEmitter {
     }
 
     try {
-      session.pty.write(data);
+      session.process.stdin?.write(data);
     } catch (error) {
-      console.error(`[SessionManager] Failed to write to PTY: ${error}`);
+      console.error(`[SessionManager] Failed to write to shell: ${error}`);
     }
   }
 
   /**
    * Resize a terminal session
+   * Note: Limited support without PTY, but we can update env vars
    */
   resizeTerminal(clientId: string, sessionId: string, cols: number, rows: number): void {
     const session = this.getTerminalSession(clientId, sessionId);
@@ -213,13 +239,16 @@ export class SessionManager extends EventEmitter {
       return;
     }
 
+    // Update session dimensions
+    session.cols = cols;
+    session.rows = rows;
+    console.log(`[SessionManager] Terminal dimensions updated: ${sessionId} to ${cols}x${rows}`);
+
+    // Try to set environment variables (works in some shells)
     try {
-      session.pty.resize(cols, rows);
-      session.cols = cols;
-      session.rows = rows;
-      console.log(`[SessionManager] Terminal resized: ${sessionId} to ${cols}x${rows}`);
-    } catch (error) {
-      console.error(`[SessionManager] Failed to resize PTY: ${error}`);
+      session.process.stdin?.write(`stty cols ${cols} rows ${rows} 2>/dev/null || true\n`);
+    } catch (e) {
+      // Ignore resize errors
     }
   }
 
@@ -231,7 +260,7 @@ export class SessionManager extends EventEmitter {
     if (!session) return false;
 
     try {
-      session.pty.kill();
+      session.process.kill('SIGTERM');
       const client = this.clients.get(clientId);
       if (client) {
         client.terminalSessions.delete(sessionId);
@@ -239,7 +268,7 @@ export class SessionManager extends EventEmitter {
       console.log(`[SessionManager] Terminal killed: ${sessionId}`);
       return true;
     } catch (error) {
-      console.error(`[SessionManager] Failed to kill PTY: ${error}`);
+      console.error(`[SessionManager] Failed to kill terminal: ${error}`);
       return false;
     }
   }
