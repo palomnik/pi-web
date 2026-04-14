@@ -213,6 +213,10 @@ const piWebExtension: ExtensionFactory = (pi) => {
 
         // Update cwd to current Pi directory
         serverConfig.pi.cwd = ctx.cwd;
+        
+        // Set environment variable so routes know the working directory
+        process.env.PI_CWD = ctx.cwd;
+        process.env.PI_SESSION = '1';
 
         // Create and start server
         server = createPiWebServer(serverConfig);
@@ -241,6 +245,8 @@ const piWebExtension: ExtensionFactory = (pi) => {
       } else {
         serverConfig = await loadConfig();
         serverConfig.pi.cwd = ctx.cwd;
+        process.env.PI_CWD = ctx.cwd;
+        process.env.PI_SESSION = '1';
         server = createPiWebServer(serverConfig);
         await server.start();
         ctx.ui.notify(`Pi Web started at http://${serverConfig.host}:${serverConfig.port}`, 'info');
@@ -265,6 +271,8 @@ const piWebExtension: ExtensionFactory = (pi) => {
         try {
           serverConfig = await loadConfig();
           serverConfig.pi.cwd = ctx.cwd;
+          process.env.PI_CWD = ctx.cwd;
+          process.env.PI_SESSION = '1';
           server = createPiWebServer(serverConfig);
           await server.start();
           ctx.ui.setStatus('pi-web', `\u{1F310} Web: ${serverConfig.port}`);
