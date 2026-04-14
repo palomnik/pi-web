@@ -3,6 +3,10 @@
  * 
  * Bridges the web interface to the Pi coding agent CLI.
  * Handles communication with the Pi agent for chat, file operations, etc.
+ * 
+ * Supports two modes:
+ * 1. Standalone: Spawns a new Pi process
+ * 2. Extension: Uses Pi process that loaded this as an extension
  */
 
 import { spawn, ChildProcess } from 'child_process';
@@ -31,6 +35,8 @@ export interface StreamChunk {
   output?: string;
 }
 
+export type ChatHandler = (content: string, sessionId: string | null, onChunk: (chunk: StreamChunk) => void) => Promise<void>;
+
 export class PiBridge extends EventEmitter {
   private cwd: string;
   private env: NodeJS.ProcessEnv;
@@ -39,6 +45,8 @@ export class PiBridge extends EventEmitter {
   private stdin: Writable | null = null;
   private stdout: Readable | null = null;
   private buffer: string = '';
+  private externalChatHandler: ChatHandler | null = null;
+  private externalConnection: boolean = false;
 
   constructor(cwd: string, env: NodeJS.ProcessEnv = process.env) {
     super();
@@ -47,16 +55,32 @@ export class PiBridge extends EventEmitter {
   }
 
   /**
+   * Set up an external chat handler (for extension mode)
+   * When running as a Pi extension, use this to handle chat via Pi's API
+   */
+  setChatHandler(handler: ChatHandler): void {
+    this.externalChatHandler = handler;
+    this.externalConnection = true;
+    this.connected = true;
+    this.emit('connect');
+  }
+
+  /**
    * Check if connected to Pi
    */
   isConnected(): boolean {
-    return this.connected && this.piProcess !== null;
+    return this.connected && (this.piProcess !== null || this.externalConnection);
   }
 
   /**
    * Start Pi in JSON mode (for reliable parsing)
    */
   async connect(): Promise<void> {
+    if (this.externalConnection) {
+      // Already connected via external handler
+      return;
+    }
+
     if (this.piProcess) {
       return; // Already connected
     }
@@ -123,6 +147,14 @@ export class PiBridge extends EventEmitter {
    * Disconnect from Pi
    */
   async disconnect(): Promise<void> {
+    if (this.externalConnection) {
+      this.connected = false;
+      this.externalConnection = false;
+      this.externalChatHandler = null;
+      this.emit('disconnect');
+      return;
+    }
+
     if (!this.piProcess) return;
 
     return new Promise((resolve) => {
@@ -146,8 +178,28 @@ export class PiBridge extends EventEmitter {
     sessionId: string | null,
     onChunk: (chunk: StreamChunk) => void
   ): Promise<void> {
-    // If not connected, try to connect
+    // Use external handler if available (extension mode)
+    if (this.externalConnection && this.externalChatHandler) {
+      const textContent = typeof content === 'string' ? content : content
+        .filter(p => p.type === 'text')
+        .map(p => p.text || '')
+        .join('\n');
+      
+      return this.externalChatHandler(textContent, sessionId, onChunk);
+    }
+
+    // If not connected at all, send error
     if (!this.connected) {
+      onChunk({ 
+        type: 'error', 
+        content: 'Pi is not connected. Start Pi CLI first or run this as a Pi extension.' 
+      });
+      onChunk({ type: 'done' });
+      return;
+    }
+
+    // Try to connect if we have a process
+    if (!this.piProcess) {
       try {
         await this.connect();
       } catch (err) {

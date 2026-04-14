@@ -18,9 +18,31 @@ export function createGitHubRouter(): Router {
   /**
    * Helper to run git commands
    */
-  const runGit = async (args: string[], cwd = process.cwd()): Promise<string> => {
-    const { stdout } = await execAsync(`git ${args.join(' ')}`, { cwd, shell: '/bin/bash' });
-    return stdout.trim();
+  const runGit = async (args: string[], cwd?: string): Promise<string> => {
+    // Default to current working directory or home directory
+    const gitCwd = cwd || process.env.PI_CWD || process.cwd();
+    try {
+      const { stdout } = await execAsync(`git ${args.join(' ')}`, { cwd: gitCwd, shell: '/bin/bash' });
+      return stdout.trim();
+    } catch (error) {
+      // If not a git repo, return empty/default values
+      if (error instanceof Error && error.message.includes('not a git repository')) {
+        return '';
+      }
+      throw error;
+    }
+  };
+
+  /**
+   * Check if directory is a git repository
+   */
+  const isGitRepo = async (cwd?: string): Promise<boolean> => {
+    try {
+      await runGit(['rev-parse', '--is-inside-work-tree'], cwd);
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   /**
@@ -29,7 +51,20 @@ export function createGitHubRouter(): Router {
    */
   router.get('/status', async (req, res) => {
     try {
-      const cwd = req.query.cwd as string || process.cwd();
+      const cwd = req.query.cwd as string || process.env.PI_CWD || process.cwd();
+      
+      // Check if this is a git repository
+      const isRepo = await isGitRepo(cwd);
+      if (!isRepo) {
+        return res.json({
+          error: 'Not a git repository',
+          isRepo: false,
+          branch: null,
+          status: [],
+          remote: null,
+          aheadBehind: { ahead: 0, behind: 0 },
+        });
+      }
 
       const branch = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
       const status = await runGit(['status', '--porcelain'], cwd);
@@ -37,6 +72,7 @@ export function createGitHubRouter(): Router {
       const aheadBehind = await runGit(['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'], cwd).catch(() => '0\t0');
 
       res.json({
+        isRepo: true,
         branch,
         status: status.split('\n').filter(Boolean).map(line => ({
           code: line.slice(0, 2),
@@ -50,7 +86,14 @@ export function createGitHubRouter(): Router {
       });
     } catch (error) {
       console.error('[GitHub] Error getting status:', error);
-      res.status(500).json({ error: 'Not a git repository or git not available' });
+      res.json({
+        error: 'Not a git repository or git not available',
+        isRepo: false,
+        branch: null,
+        status: [],
+        remote: null,
+        aheadBehind: { ahead: 0, behind: 0 },
+      });
     }
   });
 

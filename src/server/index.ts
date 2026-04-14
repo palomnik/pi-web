@@ -229,9 +229,36 @@ async function handleWebSocketMessage(
   switch (message.type) {
     case 'chat':
       // Stream chat messages from Pi
-      await piBridge.streamChat(message.content, message.sessionId, (chunk) => {
-        ws.send(JSON.stringify({ type: 'chat-chunk', chunk }));
-      });
+      try {
+        if (!piBridge.isConnected()) {
+          ws.send(JSON.stringify({ 
+            type: 'chat-chunk', 
+            chunk: { 
+              type: 'error', 
+              content: 'Pi is not connected. Using standalone mode with limited functionality.' 
+            } 
+          }));
+          ws.send(JSON.stringify({ 
+            type: 'chat-chunk', 
+            chunk: { type: 'done' } 
+          }));
+          return;
+        }
+        
+        await piBridge.streamChat(message.content, message.sessionId, (chunk) => {
+          ws.send(JSON.stringify({ type: 'chat-chunk', chunk }));
+        });
+      } catch (error) {
+        console.error('[WS] Chat error:', error);
+        ws.send(JSON.stringify({ 
+          type: 'chat-chunk', 
+          chunk: { 
+            type: 'error', 
+            content: error instanceof Error ? error.message : 'Chat failed' 
+          } 
+        }));
+        ws.send(JSON.stringify({ type: 'chat-chunk', chunk: { type: 'done' } }));
+      }
       break;
 
     case 'terminal-input':
