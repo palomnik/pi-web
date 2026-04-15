@@ -1,5 +1,7 @@
 # Pi Web Interface
 
+## WARNING: This package is in development and has serious security flaws. Do not use, except in testing.
+
 A modern web interface for the Pi coding agent CLI. Provides browser-based access to Pi's capabilities including chat, terminal, file management, and GitHub integration.
 
 ## Installation
