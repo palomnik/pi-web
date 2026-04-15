@@ -32,7 +32,8 @@
     "dev:frontend": "cd frontend && npm run dev",
     "start": "node dist/cli.js",
     "prepare": "npm run build",
-    "postinstall": "npm run build:frontend",
+    "postinstall": "npm run build:frontend && npm run fix-perms",
+    "fix-perms": "node fix-perms.cjs",
     "prepublishOnly": "npm run build && npm run build:frontend"
   },
   "keywords": [

@@ -3,102 +3,97 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { useAppStore } from '../../stores/appStore';
+import { useWebSocket } from '../../stores/websocketStore';
 import { X, PlusCircle } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 
 export default function TerminalPanel() {
   const { terminalSessions, createTerminalSession, removeTerminalSession } =
     useAppStore();
+  const { send, connected, on, off } = useWebSocket();
   const [activeSession, setActiveSession] = useState<string | null>(null);
+  // Map frontend session ID -> server session ID
   const [serverSessions, setServerSessions] = useState<Map<string, string>>(
     new Map()
-  ); // local session -> server session mapping
+  );
   const terminalRefs = useRef<Map<string, { terminal: Terminal; fitAddon: FitAddon }>>(
     new Map()
   );
-  const wsRef = useRef<WebSocket | null>(null);
   const containerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const cwdRef = useRef<string>('/');
+  const pendingCreationRef = useRef<Set<string>>(new Set()); // sessions waiting for server confirmation
 
   // Get the current working directory from settings or default
   const cwd = useAppStore((state) => state.currentPath) || '/';
+  cwdRef.current = cwd;
 
-  // Connect to WebSocket on mount
+  // Listen for WebSocket terminal messages
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-
-    ws.onopen = () => {
-      console.log('[Terminal] WebSocket connected');
-    };
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      
-      if (data.type === 'connected') {
-        console.log('[Terminal] Got connection ID:', data.clientId);
-      } else if (data.type === 'terminal-created') {
-        console.log('[Terminal] Session created:', data.sessionId);
-        setServerSessions((prev) => {
-          const next = new Map(prev);
-          // Find the local session that doesn't have a server session yet
-          for (const [localId] of next) {
-            if (!next.get(localId)) {
-              next.set(localId, data.sessionId);
-              break;
-            }
-          }
-          return next;
-        });
-      } else if (data.type === 'terminal-output' && data.sessionId) {
-        // Find the local session for this server session
-        let localSessionId: string | null = null;
-        for (const [localId, serverId] of serverSessions.entries()) {
-          if (serverId === data.sessionId) {
-            localSessionId = localId;
-            break;
-          }
+    const handleTerminalCreated = (data: any) => {
+      console.log('[Terminal] Session created on server:', data.sessionId);
+      // Find a pending local session and map it
+      const pending = pendingCreationRef.current;
+      if (pending.size > 0) {
+        const localId = pending.values().next().value;
+        if (localId) {
+          pending.delete(localId);
+          setServerSessions((prev) => {
+            const next = new Map(prev);
+            next.set(localId, data.sessionId);
+            return next;
+          });
         }
-        // Also check if sessionId directly matches (new style)
-        if (!localSessionId) {
-          localSessionId = data.sessionId;
-        }
-        
-        const ref = terminalRefs.current.get(localSessionId || data.sessionId);
-        if (ref) {
-          ref.terminal.write(data.data);
-        }
-      } else if (data.type === 'terminal-exit') {
-        console.log('[Terminal] Session exited:', data.sessionId, 'code:', data.exitCode);
-        // Show exit message in terminal
-        for (const [localId, serverId] of serverSessions.entries()) {
-          if (serverId === data.sessionId) {
-            const ref = terminalRefs.current.get(localId);
-            if (ref) {
-              ref.terminal.writeln('');
-              ref.terminal.writeln(`\x1b[33mProcess exited with code ${data.exitCode}\x1b[0m`);
-            }
-            break;
-          }
-        }
-      } else if (data.type === 'terminal-killed') {
-        console.log('[Terminal] Session killed:', data.sessionId);
       }
     };
 
-    ws.onerror = (error) => {
-      console.error('[Terminal] WebSocket error:', error);
+    const handleTerminalOutput = (data: any) => {
+      if (!data.sessionId) return;
+      
+      // Find the local session for this server session
+      let localSessionId: string | null = null;
+      for (const [localId, serverId] of serverSessions.entries()) {
+        if (serverId === data.sessionId) {
+          localSessionId = localId;
+          break;
+        }
+      }
+      
+      const ref = terminalRefs.current.get(localSessionId || data.sessionId);
+      if (ref) {
+        ref.terminal.write(data.data);
+      }
     };
 
-    ws.onclose = () => {
-      console.log('[Terminal] WebSocket disconnected');
+    const handleTerminalExit = (data: any) => {
+      console.log('[Terminal] Session exited:', data.sessionId, 'code:', data.exitCode);
+      for (const [localId, serverId] of serverSessions.entries()) {
+        if (serverId === data.sessionId) {
+          const ref = terminalRefs.current.get(localId);
+          if (ref) {
+            ref.terminal.writeln('');
+            ref.terminal.writeln(`\x1b[33mProcess exited with code ${data.exitCode}\x1b[0m`);
+          }
+          break;
+        }
+      }
     };
 
-    wsRef.current = ws;
+    const handleTerminalKilled = (data: any) => {
+      console.log('[Terminal] Session killed:', data.sessionId);
+    };
+
+    const unsub1 = on('terminal-created', handleTerminalCreated);
+    const unsub2 = on('terminal-output', handleTerminalOutput);
+    const unsub3 = on('terminal-exit', handleTerminalExit);
+    const unsub4 = on('terminal-killed', handleTerminalKilled);
 
     return () => {
-      ws.close();
+      unsub1();
+      unsub2();
+      unsub3();
+      unsub4();
     };
-  }, []);
+  }, [on, off, serverSessions]);
 
   // Create initial terminal session
   useEffect(() => {
@@ -111,11 +106,13 @@ export default function TerminalPanel() {
 
   // Initialize xterm.js for each session
   useEffect(() => {
-    terminalSessions.forEach((sessionId) => {
-      if (terminalRefs.current.has(sessionId)) return;
+    const newSessions = terminalSessions.filter(
+      (sessionId) => !terminalRefs.current.has(sessionId)
+    );
 
+    for (const sessionId of newSessions) {
       const containerEl = document.getElementById(`terminal-${sessionId}`);
-      if (!containerEl) return;
+      if (!containerEl) continue;
 
       const terminal = new Terminal({
         theme: {
@@ -155,7 +152,6 @@ export default function TerminalPanel() {
       terminal.loadAddon(webLinksAddon);
       terminal.open(containerEl as HTMLDivElement);
       
-      // Store the container reference
       containerRefs.current.set(sessionId, containerEl as HTMLDivElement);
       terminalRefs.current.set(sessionId, { terminal, fitAddon });
 
@@ -166,16 +162,14 @@ export default function TerminalPanel() {
       const resizeObserver = new ResizeObserver(() => {
         fitAddon.fit();
         const dims = fitAddon.proposeDimensions();
-        if (dims && wsRef.current?.readyState === WebSocket.OPEN) {
+        if (dims && connected) {
           const serverSessionId = serverSessions.get(sessionId) || sessionId;
-          wsRef.current.send(
-            JSON.stringify({
-              type: 'terminal-resize',
-              sessionId: serverSessionId,
-              cols: dims.cols,
-              rows: dims.rows,
-            })
-          );
+          send({
+            type: 'terminal-resize',
+            sessionId: serverSessionId,
+            cols: dims.cols,
+            rows: dims.rows,
+          });
         }
       });
       resizeObserver.observe(containerEl);
@@ -187,58 +181,91 @@ export default function TerminalPanel() {
       terminal.writeln('');
 
       // Send terminal-create message to server
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
+      if (connected) {
         const dims = fitAddon.proposeDimensions();
-        wsRef.current.send(
-          JSON.stringify({
-            type: 'terminal-create',
-            sessionId: sessionId,
-            cols: dims?.cols || 80,
-            rows: dims?.rows || 24,
-            cwd: cwd,
-          })
-        );
+        pendingCreationRef.current.add(sessionId);
+        send({
+          type: 'terminal-create',
+          sessionId: sessionId,
+          cols: dims?.cols || 80,
+          rows: dims?.rows || 24,
+          cwd: cwdRef.current,
+        });
       } else {
         terminal.writeln('\x1b[33mWaiting for WebSocket connection...\x1b[0m');
+        // Mark as pending - will be sent when connected
+        pendingCreationRef.current.add(sessionId);
       }
 
       // Handle terminal input - send to PTY
       terminal.onData((data) => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
+        if (connected) {
           const serverSessionId = serverSessions.get(sessionId) || sessionId;
-          wsRef.current.send(
-            JSON.stringify({
-              type: 'terminal-input',
-              sessionId: serverSessionId,
-              data,
-            })
-          );
+          send({
+            type: 'terminal-input',
+            sessionId: serverSessionId,
+            data,
+          });
         }
       });
-    });
+    }
 
     return () => {
-      // Cleanup on unmount
+      // Cleanup terminals that were removed
+      const currentIds = new Set(terminalSessions);
       for (const [sessionId, { terminal }] of terminalRefs.current) {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
+        if (!currentIds.has(sessionId)) {
+          terminal.dispose();
+          terminalRefs.current.delete(sessionId);
+          containerRefs.current.delete(sessionId);
+        }
+      }
+    };
+  }, [terminalSessions, cwd, serverSessions, connected, send]);
+
+  // Send pending terminal-create when WebSocket connects
+  useEffect(() => {
+    if (connected && pendingCreationRef.current.size > 0) {
+      // Small delay to ensure connection is stable
+      const timer = setTimeout(() => {
+        for (const sessionId of pendingCreationRef.current) {
+          const ref = terminalRefs.current.get(sessionId);
+          if (ref) {
+            const dims = ref.fitAddon.proposeDimensions();
+            send({
+              type: 'terminal-create',
+              sessionId: sessionId,
+              cols: dims?.cols || 80,
+              rows: dims?.rows || 24,
+              cwd: cwdRef.current,
+            });
+          }
+        }
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [connected, send]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      for (const [sessionId, { terminal }] of terminalRefs.current) {
+        if (connected) {
           const serverSessionId = serverSessions.get(sessionId) || sessionId;
-          wsRef.current.send(
-            JSON.stringify({
-              type: 'terminal-kill',
-              sessionId: serverSessionId,
-            })
-          );
+          send({
+            type: 'terminal-kill',
+            sessionId: serverSessionId,
+          });
         }
         terminal.dispose();
       }
       terminalRefs.current.clear();
       containerRefs.current.clear();
     };
-  }, [terminalSessions, cwd, serverSessions]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleNewTerminal = useCallback(() => {
     createTerminalSession();
-    // Set active session to the newest tab
     setTimeout(() => {
       const sessions = useAppStore.getState().terminalSessions;
       if (sessions.length > 0) {
@@ -249,15 +276,12 @@ export default function TerminalPanel() {
 
   const handleCloseTerminal = useCallback(
     (sessionId: string) => {
-      // Send kill message and remove
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
+      if (connected) {
         const serverSessionId = serverSessions.get(sessionId) || sessionId;
-        wsRef.current.send(
-          JSON.stringify({
-            type: 'terminal-kill',
-            sessionId: serverSessionId,
-          })
-        );
+        send({
+          type: 'terminal-kill',
+          sessionId: serverSessionId,
+        });
       }
       removeTerminalSession(sessionId);
       setServerSessions((prev) => {
@@ -265,8 +289,17 @@ export default function TerminalPanel() {
         next.delete(sessionId);
         return next;
       });
+      pendingCreationRef.current.delete(sessionId);
+      
+      // Clean up xterm
+      const ref = terminalRefs.current.get(sessionId);
+      if (ref) {
+        ref.terminal.dispose();
+        terminalRefs.current.delete(sessionId);
+        containerRefs.current.delete(sessionId);
+      }
     },
-    [removeTerminalSession, serverSessions]
+    [removeTerminalSession, serverSessions, connected, send]
   );
 
   return (

@@ -51,6 +51,7 @@ export interface PiWebServer {
   start(): Promise<void>;
   stop(): Promise<void>;
   isRunning(): boolean;
+  setChatHandler(handler: import('./services/pi-bridge.js').ChatHandler): void;
 }
 
 /**
@@ -80,15 +81,13 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
   const frontendPath = join(__dirname, '..', '..', 'frontend', 'dist');
   app.use(express.static(frontendPath));
 
-  // API Routes
-  app.use('/api/chat', createChatRouter(piBridge, sessionManager));
-  app.use('/api/terminal', createTerminalRouter());
-  app.use('/api/files', createFilesRouter(config.pi.cwd));
-  app.use('/api/github', createGitHubRouter());
-  app.use('/api/settings', createSettingsRouter());
-
-  // Auth middleware for protected routes
+  // Auth middleware for protected routes - MUST be before route handlers
   app.use('/api/*', (req, res, next) => {
+    // Skip auth for health check and login
+    if (req.path === '/health' || req.path === '/auth/login') {
+      return next();
+    }
+    
     if (!config.auth.enabled) {
       return next();
     }
@@ -105,6 +104,13 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
     
     next();
   });
+
+  // API Routes (after auth middleware so they're protected)
+  app.use('/api/chat', createChatRouter(piBridge, sessionManager));
+  app.use('/api/terminal', createTerminalRouter());
+  app.use('/api/files', createFilesRouter(config.pi.cwd));
+  app.use('/api/github', createGitHubRouter());
+  app.use('/api/settings', createSettingsRouter());
 
   // Health check
   app.get('/api/health', (req, res) => {
@@ -158,17 +164,15 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
 
   let serverRunning = false;
 
-  // Try to connect to Pi on startup (only when running standalone)
-  // When running as extension from Pi, Pi is already the parent process
-  const isStandalone = !process.env.PI_SESSION;
-  if (isStandalone) {
-    piBridge.connect().then(() => {
-      console.log('[Pi Web] Connected to Pi');
-    }).catch((err) => {
-      console.log('[Pi Web] Could not connect to Pi:', err.message);
-      console.log('[Pi Web] Chat will be limited. Start Pi CLI for full functionality.');
-    });
-  }
+  // Always try to connect to Pi on startup.
+  // When running as extension: connect to Pi as a child process for web chat.
+  // When running standalone: connect to Pi for chat.
+  piBridge.connect().then(() => {
+    console.log('[Pi Web] Connected to Pi');
+  }).catch((err) => {
+    console.log('[Pi Web] Could not connect to Pi:', err.message);
+    console.log('[Pi Web] Chat will be limited. Start Pi CLI for full functionality.');
+  });
 
   return {
     config,
@@ -213,6 +217,10 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
 
     isRunning() {
       return serverRunning;
+    },
+
+    setChatHandler(handler: import('./services/pi-bridge.js').ChatHandler) {
+      piBridge.setChatHandler(handler);
     },
   };
 }
@@ -268,12 +276,13 @@ async function handleWebSocketMessage(
       break;
 
     case 'terminal-create':
-      // Create a new PTY session
+      // Create a new PTY session, using client's preferred session ID
       const termSession = sessionManager.createTerminalSession(clientId, {
         cols: message.cols || 80,
         rows: message.rows || 24,
         cwd: message.cwd,
         shell: message.shell,
+        sessionId: message.sessionId, // Use client's session ID
       });
       
       if (termSession) {

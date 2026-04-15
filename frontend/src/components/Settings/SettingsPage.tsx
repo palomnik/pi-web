@@ -235,7 +235,7 @@ export default function SettingsPage() {
                 /pi-web [port] [--host hostname] [--auth]
               </code>
               <p className="text-sm text-pi-text-secondary mt-2">
-                Or use <kbd className="bg-pi-bg px-1 rounded">Ctrl+W</kbd> to toggle the web interface.
+                Or use <kbd className="bg-pi-bg px-1 rounded">Ctrl+Shift+W</kbd> to toggle the web interface.
               </p>
             </div>
           </section>

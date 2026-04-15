@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../../stores/appStore';
+import { useWebSocket } from '../../stores/websocketStore';
 import MessageBubble from './MessageBubble';
 import { Send, Plus, Trash2 } from 'lucide-react';
 
@@ -10,13 +11,19 @@ export default function ChatPanel() {
     createSession,
     setCurrentSession,
     addMessage,
+    updateMessage,
     deleteSession,
   } = useAppStore();
 
+  const { send, connected, on, off } = useWebSocket();
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const currentSessionIdRef = useRef<string | null>(null);
+  const streamingMessageIdRef = useRef<string | null>(null);
+  
+  // Keep ref in sync with state
+  currentSessionIdRef.current = currentSessionId;
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
 
@@ -32,6 +39,67 @@ export default function ChatPanel() {
     }
   }, [sessions.length, createSession]);
 
+  // Listen for chat-chunk messages from the shared WebSocket
+  useEffect(() => {
+    const handleChatChunk = (data: any) => {
+      const chunk = data.chunk;
+      const sessionId = data.sessionId || currentSessionIdRef.current;
+      
+      if (chunk.type === 'text' && chunk.content) {
+        if (sessionId) {
+          const session = useAppStore.getState().sessions.find(s => s.id === sessionId);
+          const lastMessage = session?.messages[session.messages.length - 1];
+          
+          if (lastMessage?.role === 'assistant' && lastMessage.isStreaming) {
+            updateMessage(sessionId, lastMessage.id, { 
+              content: lastMessage.content + chunk.content 
+            });
+          } else {
+            // Create new assistant message
+            const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            streamingMessageIdRef.current = msgId;
+            addMessage(sessionId, { 
+              role: 'assistant', 
+              content: chunk.content,
+              isStreaming: true,
+            });
+          }
+        }
+      } else if (chunk.type === 'thinking' && chunk.content) {
+        // Handle thinking/reasoning content
+        console.log('[Chat] Thinking:', chunk.content);
+      } else if (chunk.type === 'tool_use') {
+        // Handle tool use events
+        console.log('[Chat] Tool use:', chunk.name);
+      } else if (chunk.type === 'tool_result') {
+        // Handle tool results
+        console.log('[Chat] Tool result:', chunk.name);
+      } else if (chunk.type === 'error') {
+        if (sessionId) {
+          addMessage(sessionId, { 
+            role: 'assistant', 
+            content: `⚠️ ${chunk.content || 'An error occurred'}`,
+          });
+        }
+        setIsStreaming(false);
+      } else if (chunk.type === 'done') {
+        // Mark streaming as complete
+        setIsStreaming(false);
+        streamingMessageIdRef.current = null;
+        if (sessionId) {
+          const session = useAppStore.getState().sessions.find(s => s.id === sessionId);
+          const lastMessage = session?.messages[session.messages.length - 1];
+          if (lastMessage?.role === 'assistant' && lastMessage.isStreaming) {
+            updateMessage(sessionId, lastMessage.id, { isStreaming: false });
+          }
+        }
+      }
+    };
+
+    const unsubscribe = on('chat-chunk', handleChatChunk);
+    return unsubscribe;
+  }, [on, off, addMessage, updateMessage]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || !currentSessionId || isStreaming) return;
@@ -41,24 +109,18 @@ export default function ChatPanel() {
 
     // Add user message
     addMessage(currentSessionId, { role: 'user', content });
-
     setIsStreaming(true);
 
     try {
-      // Send to backend via REST API (WebSocket would be better for streaming)
-      const response = await fetch('/api/chat/message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, sessionId: currentSessionId }),
-      });
-
-      if (response.ok) {
-        // For now, just add a placeholder response
-        // TODO: Implement proper streaming via WebSocket
-        addMessage(currentSessionId, {
-          role: 'assistant',
-          content: 'Message received. Full streaming integration coming soon...',
+      // Send via shared WebSocket
+      if (connected) {
+        send({
+          type: 'chat',
+          content,
+          sessionId: currentSessionId,
         });
+      } else {
+        throw new Error('WebSocket not connected');
       }
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -66,7 +128,6 @@ export default function ChatPanel() {
         role: 'assistant',
         content: 'Failed to connect to Pi. Make sure the web interface is started from within Pi.',
       });
-    } finally {
       setIsStreaming(false);
     }
   };
@@ -87,6 +148,11 @@ export default function ChatPanel() {
           {currentSession && (
             <span className="text-sm text-pi-text-secondary">
               {currentSession.name}
+            </span>
+          )}
+          {!connected && (
+            <span className="text-xs bg-red-600/20 text-red-400 px-2 py-0.5 rounded">
+              Disconnected
             </span>
           )}
         </div>
@@ -133,7 +199,7 @@ export default function ChatPanel() {
         {currentSession?.messages.map((message) => (
           <MessageBubble key={message.id} message={message} />
         ))}
-        {isStreaming && (
+        {isStreaming && currentSession?.messages[currentSession.messages.length - 1]?.role !== 'assistant' && (
           <div className="flex items-center gap-2 text-pi-text-secondary">
             <div className="animate-pulse-slow">Pi is thinking...</div>
           </div>
@@ -145,18 +211,17 @@ export default function ChatPanel() {
       <div className="p-4 border-t border-pi-border">
         <form onSubmit={handleSubmit} className="flex gap-2">
           <textarea
-            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Send a message to Pi..."
+            placeholder={connected ? "Send a message to Pi..." : "Connecting to Pi..."}
             className="flex-1 bg-pi-bg-secondary border border-pi-border rounded-lg px-4 py-3 resize-none focus:outline-none focus:border-pi-accent"
             rows={1}
             style={{ minHeight: '44px', maxHeight: '200px' }}
           />
           <button
             type="submit"
-            disabled={!input.trim() || isStreaming}
+            disabled={!input.trim() || isStreaming || !connected}
             className="px-4 py-2 bg-pi-accent text-white rounded-lg hover:bg-pi-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Send size={20} />

@@ -1,158 +1,142 @@
 # Pi-Web Interface - Fixes Summary
 
-This document summarizes the fixes applied to resolve build and installation issues.
+This document summarizes the fixes applied to resolve build, installation, and runtime issues.
 
-## Critical Fix: Extension Discovery
+## Round 1: Build & Installation Fixes
 
-The package was not being recognized by Pi after installation.
+### Extension Discovery
 
-**Problem:** Pi couldn't find the extension because `package.json` used the wrong format:
+**Problem:** Pi couldn't find the extension because `package.json` used the wrong format.
+
+**Solution:** Use `pi` field with `extensions` array:
 ```json
-"piConfig": {
-  "provides": { "extensions": ["extension"] }
-}
+"pi": { "extensions": ["./dist/extension.js"] }
 ```
 
-**Solution:** Pi expects a `pi` field with an `extensions` array containing paths to extension entry points:
-```json
-"pi": {
-  "extensions": ["./dist/extension.js"]
-}
-```
+### TypeScript Compilation Errors
+
+- `KeyId` type error - Changed to lowercase `'ctrl+w'` → `'ctrl+shift+w'`
+- Import declaration conflicts in `index.ts` - Renamed `createServer` import
+- WebSocket handler missing parameters - Added `sessionId` to calls
+- Added `src/cli.ts` to tsconfig include
+- Frontend dependency version fixes (xterm addons)
+- Removed unused imports/variables across frontend components
 
 ---
 
-## Issue
+## Round 2: Runtime & Functional Fixes
 
-The package failed to install correctly from GitHub due to:
-1. Missing `dist/` directory (not included in git)
-2. TypeScript compilation errors in both backend and frontend code
-3. Incorrect dependency versions
+### Fix 1: Auth Middleware Order (CRITICAL)
 
-## Backend Fixes
+**Problem:** Auth middleware was registered AFTER route handlers, so it never protected any API routes.
 
-### `src/extension.ts`
+**Solution:** Moved auth middleware BEFORE the route handlers in `src/server/index.ts`.
 
-| Issue | Fix |
-|-------|-----|
-| `KeyId` type error - `'Ctrl+W'` not assignable | Changed to lowercase `'ctrl+w'` (Pi's key binding system requires lowercase format) |
-| "Always truthy" expression warning | Refactored config parsing: `Object.keys(parsedArgs).filter(...)` → `Object.keys(parsedArgs).every(k => configKeys.includes(k as any))` |
+### Fix 2: Chat Doesn't Work - PiBridge Not Connected (CRITICAL)
 
-### `src/server/index.ts`
+**Problem:** When running as a Pi extension, `piBridge.connect()` was skipped (because `isStandalone` was false), and `piBridge.setChatHandler()` was never called. So `piBridge.isConnected()` always returned `false` and all chat messages received an error.
 
-| Issue | Fix |
-|-------|-----|
-| Import declaration conflicts with local declaration | Renamed `import { createServer }` → `import { createServer as createHttpServer }` |
-| `createServer` type reference error | Changed `ReturnType<typeof createServer>` → `ReturnType<typeof createHttpServer>` |
-| WebSocket handler missing parameters | Added `message.sessionId` parameter to `sendTerminalInput()` and `resizeTerminal()` calls |
-| Spread operator type issue | Changed `{ type: 'chat-chunk', ...chunk }` → `{ type: 'chat-chunk', chunk }` |
+**Solution:** 
+- Always attempt to connect (removed `isStandalone` check)
+- PiBridge now tries RpcClient first, then falls back to print mode
+- Added `setChatHandler()` method to `PiWebServer` interface for extension mode
+- Print mode spawns `pi --print --mode json` per chat message with prompt via stdin
 
-### `tsconfig.extension.json`
+### Fix 3: Terminal Uses spawn Instead of node-pty (CRITICAL)
 
-- Added `"src/cli.ts"` to the `include` array for CLI entry point compilation
+**Problem:** Terminal used `child_process.spawn` which creates pipes, not a PTY. The shell doesn't detect a TTY and behaves incorrectly:
+- No interactive prompt
+- No line editing / tab completion
+- No color output
+- Interactive programs (vim, top) don't work
 
-### `package.json`
+The package had `node-pty` as a dependency but never used it.
 
-- Added `"prepare": "npm run build"` script - runs automatically after `npm install` from GitHub
-- This ensures TypeScript is compiled before the package can be used
+**Solution:** Rewrote `SessionManager` to use `node-pty` for proper PTY allocation, with spawn as a fallback if node-pty is unavailable.
 
----
+### Fix 4: node-pty spawn-helper Missing Execute Permission (CRITICAL)
 
-## Frontend Fixes
+**Problem:** npm doesn't preserve execute permissions on binary files. The `spawn-helper` binary in `node-pty/prebuilds/` was installed without execute permission, causing `posix_spawnp failed` error.
 
-### Dependency Version Updates (`frontend/package.json`)
+**Solution:** 
+- Added `fix-perms.cjs` script that sets execute permission on spawn-helper
+- Added `fix-perms` npm script and integrated into `postinstall`
 
-| Package | Old Version | New Version |
-|---------|-------------|-------------|
-| `@xterm/addon-fit` | `^0.8.0` (not found) | `^0.11.0` |
-| `@xterm/addon-web-links` | `^0.9.0` | `^0.11.0` |
-| `@monaco-editor/react` | (missing) | Added |
+### Fix 5: Terminal Resize Corrupts Shell
 
-### `src/App.tsx`
+**Problem:** `resizeTerminal` wrote `stty cols X rows Y` as a command to stdin, which appeared as text in the terminal and got executed as a shell command.
 
-- Removed unused `setTheme` variable from destructuring
+**Solution:** With node-pty, proper resize uses `pty.resize(cols, rows)`. The spawn fallback now simply logs that resize isn't supported (no longer corrupts the shell).
 
-### `src/components/Files/FilesPanel.tsx`
+### Fix 6: Multiple Redundant WebSocket Connections
 
-- Removed unused imports: `Upload`, `Download`, `Trash2`, `ChevronLeft`, `ChevronRight`
-- Removed unused state variables: `showHidden`, `viewMode`
-- Removed unused functions: `handleDelete`, `formatSize`
-- Updated to import `FileItem` type from `FileTree.tsx` for type consistency
+**Problem:** `App.tsx`, `ChatPanel.tsx`, and `TerminalPanel.tsx` each created their own WebSocket connection (3 total), causing unnecessary resource usage and potential message routing issues.
 
-### `src/components/Files/FileTree.tsx`
+**Solution:** Created a shared WebSocket store (`websocketStore.ts`) using zustand. All components now use the single shared connection with a pub/sub event system.
 
-- Exported `FileItem` interface with optional fields (`modified?`, `permissions?`, `isHidden?`) for compatibility
+### Fix 7: Terminal Session ID Mapping
 
-### `src/components/GitHub/GitHubPanel.tsx`
+**Problem:** Server created its own session IDs that didn't match the frontend's IDs, requiring fragile mapping logic.
 
-- Removed unused imports: `GitPullRequest`, `GitMerge`, `Check`, `X`, `ChevronRight`
-- Fixed optional chaining for `status?.aheadBehind?.ahead/behind` checks
+**Solution:** `createTerminalSession` now accepts an optional `sessionId` from the client. The WebSocket handler passes the client's session ID through to the session manager.
 
-### `src/components/Layout.tsx`
+### Fix 8: `marked` API Robustness
 
-- Removed unused variables: `showTerminal`, `showFiles`, `showGitHub`
+**Problem:** `marked.parse()` in recent versions could potentially return a Promise under certain configurations. The `MessageBubble` used it synchronously in `useMemo`.
 
-### `src/components/Terminal/TerminalPanel.tsx`
+**Solution:** Added `marked.setOptions()` configuration, proper try/catch, and type checking of the result.
 
-- Removed unused import: `Plus`
-- Fixed `selection` property name → `selectionBackground` in xterm theme
-- Added proper type casting: `document.getElementById(...) as HTMLDivElement | null`
+### Fix 9: `require()` in ESM Context
 
-### `src/styles/index.css`
+**Problem:** `terminal.ts` used `require('fs')` which doesn't exist in ESM modules (package has `"type": "module"`).
 
-- Removed Tailwind opacity modifier from `@apply`:
-  ```css
-  /* Before */
-  @apply bg-pi-accent/20;
-  
-  /* After */
-  background-color: rgba(108, 99, 255, 0.2);
-  ```
+**Solution:** Changed to `await import('fs/promises')` with async handler.
 
----
+### Fix 10: PiBridge Process Mode Hang
 
-## Installation Verification
+**Problem:** Spawning `pi --mode json` and writing to stdin didn't produce output because JSON-RPC mode expects properly formatted RPC messages. Spawning `pi --print --mode json <message>` as a CLI argument also caused the process to hang.
 
-After these fixes, the package installs correctly from GitHub:
+**Solution:** Spawn `pi --print --mode json` WITHOUT the message as a CLI argument. Instead, write the prompt to stdin and call `stdin.end()`. This makes Pi process the prompt and exit with JSON output on stdout.
 
-```bash
-# Install from GitHub
-npm install github:palomnik/pi-web
+### Fix 11: PiBridge JSON Message Parsing
 
-# Or with Pi CLI
-pi install github:palomnik/pi-web
-```
+**Problem:** `message_end` and `message_start` events contain structured data (arrays of content objects), not plain text. Sending these as text chunks corrupted the chat display.
 
-The `prepare` script automatically builds TypeScript when installing from GitHub.
+**Solution:** Only emit text chunks from `message_update` events with `text_delta` type. Ignore lifecycle events (`session`, `agent_start`, `message_start`, `message_end`, etc.).
+
+### Fix 12: Documentation Inconsistency
+
+**Problem:** `INSTALL.md` said `Ctrl+W` but extension registers `Ctrl+Shift+W`.
+
+**Solution:** Updated documentation to correctly state `Ctrl+Shift+W`.
 
 ---
 
-## Git Commits
-
-1. **Fix TypeScript errors and add prepare script for GitHub installs**
-   - `8c45356..f000263`
-
-2. **Fix frontend TypeScript and build errors**
-   - `f000263..d87f064`
-
----
-
-## File Structure After Build
+## File Structure After Fixes
 
 ```
 pi-web/
-├── dist/                    # Built backend (auto-generated)
-│   ├── cli.js              # CLI entry point
-│   ├── extension.js        # Pi extension entry point
-│   ├── server/             # Server modules
-│   └── shared/             # Shared types
+├── dist/                    # Built backend
 ├── frontend/
-│   └── dist/               # Built frontend (auto-generated)
-│       ├── index.html
-│       ├── assets/
-│       └── pi-logo.svg
-├── src/                    # TypeScript source
-├── frontend/src/            # React source
-├── package.json
-└── tsconfig.extension.json
+│   └── dist/               # Built frontend
+│   └── src/
+│       ├── stores/
+│       │   ├── appStore.ts
+│       │   └── websocketStore.ts    # NEW: shared WebSocket
+│       └── components/
+│           ├── Chat/
+│           │   ├── ChatPanel.tsx     # Updated: uses shared WS
+│           │   └── MessageBubble.tsx # Updated: safe marked usage
+│           └── Terminal/
+│               └── TerminalPanel.tsx # Updated: uses shared WS
+├── src/
+│   └── server/
+│       ├── index.ts                   # Updated: auth order, setChatHandler
+│       └── services/
+│           ├── pi-bridge.ts           # REWRITTEN: RPC + print mode
+│           └── session-manager.ts     # REWRITTEN: node-pty support
+├── fix-perms.cjs                      # NEW: fix node-pty permissions
+├── package.json                       # Updated: fix-perms script
+├── INSTALL.md                         # Updated: correct shortcut
+└── FIXES.md                           # This file
 ```

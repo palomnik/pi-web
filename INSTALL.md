@@ -64,7 +64,7 @@ After installation and reload:
 
 ## Keyboard Shortcut
 
-Press `Ctrl+W` to toggle the web interface.
+Press `Ctrl+Shift+W` to toggle the web interface.
 
 ## CLI Flag
 

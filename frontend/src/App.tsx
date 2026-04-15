@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { useAppStore } from './stores/appStore';
+import { useWebSocket } from './stores/websocketStore';
 import Layout from './components/Layout';
 import ChatPanel from './components/Chat/ChatPanel';
 import TerminalPanel from './components/Terminal/TerminalPanel';
@@ -10,6 +11,7 @@ import SettingsPage from './components/Settings/SettingsPage';
 
 function App() {
   const { theme, setConnected } = useAppStore();
+  const { connect, disconnect, connected } = useWebSocket();
 
   // Apply theme on mount
   useEffect(() => {
@@ -21,29 +23,18 @@ function App() {
     }
   }, [theme]);
 
-  // Connect to WebSocket
+  // Connect shared WebSocket on mount
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-
-    ws.onopen = () => {
-      console.log('[WS] Connected');
-      setConnected(true);
-    };
-
-    ws.onclose = () => {
-      console.log('[WS] Disconnected');
-      setConnected(false);
-    };
-
-    ws.onerror = (error) => {
-      console.error('[WS] Error:', error);
-    };
-
+    connect();
     return () => {
-      ws.close();
+      disconnect();
     };
-  }, [setConnected]);
+  }, [connect, disconnect]);
+
+  // Sync connection state
+  useEffect(() => {
+    setConnected(connected);
+  }, [connected, setConnected]);
 
   return (
     <Routes>

@@ -2,21 +2,16 @@
  * Pi Bridge Service
  * 
  * Bridges the web interface to the Pi coding agent CLI.
- * Handles communication with the Pi agent for chat, file operations, etc.
+ * Handles communication with the Pi agent for chat.
  * 
- * Supports two modes:
- * 1. Standalone: Spawns a new Pi process
- * 2. Extension: Uses Pi process that loaded this as an extension
+ * Supports three modes:
+ * 1. RPC: Uses Pi's RpcClient for proper programmatic interaction (persistent session)
+ * 2. Extension: Uses Pi process that loaded this as an extension (via setChatHandler)
+ * 3. Print mode: Spawns `pi --print --mode json` for each message (works standalone)
  */
 
-import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
-import { Readable, Writable } from 'stream';
-
-export interface PiMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string | PiContentPart[];
-}
+import { spawn, ChildProcess } from 'child_process';
 
 export interface PiContentPart {
   type: 'text' | 'image' | 'tool_use' | 'tool_result';
@@ -37,16 +32,14 @@ export interface StreamChunk {
 
 export type ChatHandler = (content: string, sessionId: string | null, onChunk: (chunk: StreamChunk) => void) => Promise<void>;
 
+type ConnectionMode = 'none' | 'rpc' | 'extension' | 'print';
+
 export class PiBridge extends EventEmitter {
   private cwd: string;
   private env: NodeJS.ProcessEnv;
-  private piProcess: ChildProcess | null = null;
-  private connected: boolean = false;
-  private stdin: Writable | null = null;
-  private stdout: Readable | null = null;
-  private buffer: string = '';
+  private rpcClient: any = null;
+  private connectionMode: ConnectionMode = 'none';
   private externalChatHandler: ChatHandler | null = null;
-  private externalConnection: boolean = false;
 
   constructor(cwd: string, env: NodeJS.ProcessEnv = process.env) {
     super();
@@ -60,8 +53,7 @@ export class PiBridge extends EventEmitter {
    */
   setChatHandler(handler: ChatHandler): void {
     this.externalChatHandler = handler;
-    this.externalConnection = true;
-    this.connected = true;
+    this.connectionMode = 'extension';
     this.emit('connect');
   }
 
@@ -69,105 +61,84 @@ export class PiBridge extends EventEmitter {
    * Check if connected to Pi
    */
   isConnected(): boolean {
-    return this.connected && (this.piProcess !== null || this.externalConnection);
+    return this.connectionMode !== 'none';
   }
 
   /**
-   * Start Pi in JSON mode (for reliable parsing)
+   * Connect to Pi via RpcClient (preferred) or fall back to print mode
    */
   async connect(): Promise<void> {
-    if (this.externalConnection) {
-      // Already connected via external handler
-      return;
+    if (this.connectionMode === 'extension') {
+      return; // Already connected via external handler
     }
 
-    if (this.piProcess) {
-      return; // Already connected
-    }
-
-    return new Promise((resolve, reject) => {
+    // Try RpcClient first
+    try {
+      let RpcClient: any = null;
       try {
-        console.log('[PiBridge] Spawning pi --mode json --print...');
-        
-        // Spawn Pi in JSON mode with print flag for structured streaming output
-        this.piProcess = spawn('pi', ['--mode', 'json', '--print'], {
-          cwd: this.cwd,
-          env: this.env,
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-
-        this.stdin = this.piProcess.stdin;
-        
-        // Handle stdout for responses
-        this.piProcess.stdout?.on('data', (data: Buffer) => {
-          this.handleData(data.toString());
-        });
-
-        // Handle stderr for logs/errors
-        this.piProcess.stderr?.on('data', (data: Buffer) => {
-          console.error('[Pi.stderr]', data.toString());
-        });
-
-        // Handle process exit
-        this.piProcess.on('close', (code) => {
-          console.log(`[PiBridge] Process exited with code ${code}`);
-          this.connected = false;
-          this.piProcess = null;
-          this.stdin = null;
-          this.emit('disconnect');
-        });
-
-        this.piProcess.on('error', (err) => {
-          console.error('[PiBridge] Process error:', err);
-          this.connected = false;
-          this.emit('error', err);
-          reject(err);
-        });
-
-        // Wait a bit for process to start
-        setTimeout(() => {
-          if (this.piProcess && !this.piProcess.killed) {
-            this.connected = true;
-            this.emit('connect');
-            console.log('[PiBridge] Connected to Pi');
-            resolve();
-          } else {
-            reject(new Error('Failed to start Pi process'));
-          }
-        }, 1000);
-
-      } catch (err) {
-        console.error('[PiBridge] Failed to spawn Pi:', err);
-        reject(err);
+        const modesPath = require.resolve(
+          '@mariozechner/pi-coding-agent/dist/modes/index.js',
+          { paths: [this.cwd, process.cwd()] }
+        );
+        const modes = await import(modesPath);
+        RpcClient = modes.RpcClient;
+      } catch {
+        // RpcClient not available
       }
-    });
+      
+      if (RpcClient) {
+        this.rpcClient = new RpcClient({
+          cwd: this.cwd,
+          env: this.env as Record<string, string>,
+        });
+
+        this.rpcClient.onEvent((event: any) => {
+          this.handleRpcEvent(event);
+        });
+
+        await this.rpcClient.start();
+        this.connectionMode = 'rpc';
+        this.emit('connect');
+        console.log('[PiBridge] Connected to Pi via RPC');
+        return;
+      }
+    } catch (err) {
+      console.error('[PiBridge] Failed to connect via RpcClient:', err);
+    }
+
+    // Try to verify `pi` command exists (for print mode)
+    try {
+      const { execFileSync } = await import('child_process');
+      execFileSync('pi', ['--version'], { timeout: 5000, stdio: 'pipe' });
+    } catch (err) {
+      // Can't find pi command
+      console.log('[PiBridge] Pi CLI not found. Chat will be limited.');
+      this.connectionMode = 'none';
+      throw new Error('Pi CLI not found');
+    }
+
+    // Use print mode - spawn a new pi process per chat message
+    this.connectionMode = 'print';
+    this.emit('connect');
+    console.log('[PiBridge] Using print mode for chat');
   }
 
   /**
    * Disconnect from Pi
    */
   async disconnect(): Promise<void> {
-    if (this.externalConnection) {
-      this.connected = false;
-      this.externalConnection = false;
-      this.externalChatHandler = null;
-      this.emit('disconnect');
-      return;
+    if (this.rpcClient) {
+      try {
+        await this.rpcClient.stop();
+      } catch (err) {
+        console.error('[PiBridge] Error stopping RPC client:', err);
+      }
+      this.rpcClient = null;
     }
-
-    if (!this.piProcess) return;
-
-    return new Promise((resolve) => {
-      this.piProcess?.on('close', () => {
-        resolve();
-      });
-      this.piProcess?.kill('SIGTERM');
-      
-      // Force kill after timeout
-      setTimeout(() => {
-        this.piProcess?.kill('SIGKILL');
-      }, 5000);
-    });
+    
+    this.connectionMode = 'none';
+    this.externalChatHandler = null;
+    this.emit('disconnect');
   }
 
   /**
@@ -178,18 +149,18 @@ export class PiBridge extends EventEmitter {
     sessionId: string | null,
     onChunk: (chunk: StreamChunk) => void
   ): Promise<void> {
-    // Use external handler if available (extension mode)
-    if (this.externalConnection && this.externalChatHandler) {
-      const textContent = typeof content === 'string' ? content : content
-        .filter(p => p.type === 'text')
-        .map(p => p.text || '')
-        .join('\n');
-      
+    const textContent = typeof content === 'string' ? content : content
+      .filter(p => p.type === 'text')
+      .map(p => p.text || '')
+      .join('\n');
+
+    // Extension mode - delegate to external handler
+    if (this.connectionMode === 'extension' && this.externalChatHandler) {
       return this.externalChatHandler(textContent, sessionId, onChunk);
     }
 
-    // If not connected at all, send error
-    if (!this.connected) {
+    // Not connected
+    if (this.connectionMode === 'none') {
       onChunk({ 
         type: 'error', 
         content: 'Pi is not connected. Start Pi CLI first or run this as a Pi extension.' 
@@ -198,160 +169,284 @@ export class PiBridge extends EventEmitter {
       return;
     }
 
-    // Try to connect if we have a process
-    if (!this.piProcess) {
-      try {
-        await this.connect();
-      } catch (err) {
-        onChunk({ 
-          type: 'error', 
-          content: 'Could not connect to Pi. Make sure Pi CLI is installed and available.' 
-        });
-        onChunk({ type: 'done' });
-        return;
-      }
+    // RPC mode - use persistent RpcClient
+    if (this.connectionMode === 'rpc' && this.rpcClient) {
+      return this.streamChatViaRpc(textContent, onChunk);
     }
 
-    // Format message for Pi - just send text through stdin
-    const textContent = typeof content === 'string' ? content : content
-      .filter(p => p.type === 'text')
-      .map(p => p.text || '')
-      .join('\n');
+    // Print mode - spawn a new Pi process for this message
+    if (this.connectionMode === 'print') {
+      return this.streamChatViaPrint(textContent, onChunk);
+    }
 
-    // Send text to Pi's stdin
-    this.send(textContent);
+    onChunk({ type: 'error', content: 'Unknown connection mode' });
+    onChunk({ type: 'done' });
+  }
 
-    // Wait for response
-    return new Promise((resolve) => {
-      let timeoutId: NodeJS.Timeout;
+  /**
+   * Stream chat via RpcClient (persistent session)
+   */
+  private async streamChatViaRpc(
+    textContent: string,
+    onChunk: (chunk: StreamChunk) => void
+  ): Promise<void> {
+    try {
+      const streamHandler = (chunk: any) => onChunk(chunk);
+      const doneHandler = () => {
+        onChunk({ type: 'done' });
+        cleanup();
+      };
+      const errorHandler = (err: Error) => {
+        onChunk({ type: 'error', content: err.message });
+        onChunk({ type: 'done' });
+        cleanup();
+      };
 
       const cleanup = () => {
         this.off('stream', streamHandler);
         this.off('done', doneHandler);
         this.off('error', errorHandler);
-        clearTimeout(timeoutId);
-      };
-
-      const streamHandler = (chunk: any) => {
-        onChunk(chunk);
-      };
-
-      const doneHandler = () => {
-        onChunk({ type: 'done' });
-        cleanup();
-        resolve();
-      };
-
-      const errorHandler = (err: Error) => {
-        onChunk({ type: 'error', content: err.message });
-        onChunk({ type: 'done' });
-        cleanup();
-        resolve();
       };
 
       this.on('stream', streamHandler);
       this.on('done', doneHandler);
       this.on('error', errorHandler);
 
-      // Timeout after 120 seconds
-      timeoutId = setTimeout(() => {
+      // Set a timeout
+      const timeoutId = setTimeout(() => {
         onChunk({ type: 'error', content: 'Response timed out' });
         onChunk({ type: 'done' });
         cleanup();
-        resolve();
       }, 120000);
+
+      await this.rpcClient.prompt(textContent);
+      await this.rpcClient.waitForIdle(120000);
+      
+      clearTimeout(timeoutId);
+      onChunk({ type: 'done' });
+      cleanup();
+    } catch (error) {
+      console.error('[PiBridge] RPC chat error:', error);
+      onChunk({ 
+        type: 'error', 
+        content: error instanceof Error ? error.message : 'Chat failed' 
+      });
+      onChunk({ type: 'done' });
+    }
+  }
+
+  /**
+   * Stream chat via print mode - spawn `pi --print` with prompt on stdin
+   * Each message creates a new Pi process that processes and exits.
+   */
+  private async streamChatViaPrint(
+    textContent: string,
+    onChunk: (chunk: StreamChunk) => void
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      try {
+        // Use --print mode with --mode json for structured output
+        // The prompt is sent via stdin (not as CLI arg, which causes Pi to hang)
+        const args = ['--print', '--mode', 'json'];
+        
+        const piProcess = spawn('pi', args, {
+          cwd: this.cwd,
+          env: { 
+            ...this.env as Record<string, string>,
+            FORCE_COLOR: '0',
+            NO_COLOR: '1',
+          },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+
+        const finish = (exitCode: number | null) => {
+          if (settled) return;
+          settled = true;
+          
+          if (stdout.trim()) {
+            this.parseJsonOutput(stdout, onChunk);
+          }
+          
+          if (stderr.trim() && exitCode !== 0) {
+            onChunk({ 
+              type: 'error', 
+              content: `Pi process exited with code ${exitCode}: ${stderr.trim().substring(0, 200)}` 
+            });
+          }
+          
+          onChunk({ type: 'done' });
+          resolve();
+        };
+
+        piProcess.stdout?.on('data', (data: Buffer) => {
+          stdout += data.toString();
+          // Try to parse and stream JSON lines as they arrive
+          const lines = stdout.split('\n');
+          stdout = lines.pop() || ''; // Keep incomplete last line
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const msg = JSON.parse(line);
+              this.handleJsonMessage(msg, onChunk);
+            } catch {
+              // Not JSON yet, buffer it
+              stdout = line + '\n' + stdout;
+            }
+          }
+        });
+
+        piProcess.stderr?.on('data', (data: Buffer) => {
+          stderr += data.toString();
+        });
+
+        piProcess.on('close', (code) => {
+          // Process remaining stdout
+          if (stdout.trim()) {
+            this.parseJsonOutput(stdout, onChunk);
+            stdout = '';
+          }
+          finish(code);
+        });
+
+        piProcess.on('error', (err) => {
+          console.error('[PiBridge] Print mode process error:', err);
+          if (!settled) {
+            onChunk({ type: 'error', content: `Failed to run Pi: ${err.message}` });
+            onChunk({ type: 'done' });
+            settled = true;
+            resolve();
+          }
+        });
+
+        // Send the prompt via stdin and close it
+        // This is important: Pi --print reads from stdin, not CLI args
+        piProcess.stdin?.write(textContent + '\n');
+        piProcess.stdin?.end();
+
+        // Timeout after 2 minutes
+        setTimeout(() => {
+          if (!settled) {
+            piProcess.kill('SIGTERM');
+            setTimeout(() => piProcess.kill('SIGKILL'), 5000);
+            onChunk({ type: 'error', content: 'Response timed out' });
+            onChunk({ type: 'done' });
+            settled = true;
+            resolve();
+          }
+        }, 120000);
+
+      } catch (err) {
+        console.error('[PiBridge] Failed to spawn Pi in print mode:', err);
+        onChunk({ type: 'error', content: err instanceof Error ? err.message : 'Failed to start Pi' });
+        onChunk({ type: 'done' });
+        resolve();
+      }
     });
   }
 
   /**
-   * Handle incoming data from Pi stdout
+   * Parse JSON output from Pi print mode
    */
-  private handleData(data: string): void {
-    this.buffer += data;
-
-    // Process complete messages (newline-delimited JSON)
-    const lines = this.buffer.split('\n');
-    this.buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
+  private parseJsonOutput(output: string, onChunk: (chunk: StreamChunk) => void): void {
+    const lines = output.split('\n').filter(Boolean);
     for (const line of lines) {
-      if (!line.trim()) continue;
-
       try {
-        const message = JSON.parse(line);
-        
-        // Skip internal messages we don't handle
-        if (message.type === 'extension_ui_request') {
-          continue;
-        }
-        
-        this.handleMessage(message);
-      } catch (err) {
-        // Not JSON, might be a text response
+        const msg = JSON.parse(line);
+        this.handleJsonMessage(msg, onChunk);
+      } catch {
+        // Not JSON, treat as plain text
         if (line.trim()) {
-          this.emit('stream', { type: 'text', content: line });
+          onChunk({ type: 'text', content: line });
         }
       }
     }
   }
 
   /**
-   * Handle a parsed message from Pi (JSON mode)
+   * Handle a JSON message from Pi
    */
-  private handleMessage(message: any): void {
+  private handleJsonMessage(message: any, onChunk: (chunk: StreamChunk) => void): void {
     switch (message.type) {
-      case 'response':
-        this.emit('response', message);
-        break;
-      
-      case 'turn_end':
-        // Turn is complete
-        this.emit('done');
-        break;
-      
       case 'message_update':
-        // Handle streaming text from assistant
+        // Streaming text/thinking deltas
         if (message.assistantMessageEvent) {
           const event = message.assistantMessageEvent;
           if (event.type === 'text_delta' && event.delta) {
-            this.emit('stream', { type: 'text', content: event.delta });
+            onChunk({ type: 'text', content: event.delta });
           } else if (event.type === 'thinking_delta' && event.delta) {
-            this.emit('stream', { type: 'thinking', content: event.delta });
+            onChunk({ type: 'thinking', content: event.delta });
           }
         }
         break;
-      
-      case 'message_end':
-        // Message complete
-        if (message.message?.role === 'assistant') {
-          // Could emit the full message here if needed
-        }
-        break;
-      
-      case 'error':
-        this.emit('error', new Error(message.message || message.error));
-        break;
-      
+
       case 'tool_call':
-        this.emit('tool_call', message);
+        onChunk({ type: 'tool_use', name: message.name, input: message.input });
         break;
-      
+
       case 'tool_result':
-        this.emit('tool_result', message);
+        onChunk({ type: 'tool_result', name: message.name, output: message.output || message.content });
         break;
-      
+
+      // Skip these - they contain structured data, not streaming text
+      case 'session':
+      case 'agent_start':
+      case 'agent_end':
+      case 'turn_start':
+      case 'turn_end':
+      case 'message_start':
+      case 'message_end':
+        // These are lifecycle events, not content
+        break;
+
+      case 'error':
+        onChunk({ type: 'error', content: message.message || message.error || 'Pi error' });
+        break;
+
       default:
-        // For unknown types, just emit as-is
-        this.emit('message', message);
+        // Unknown message type - ignore
+        break;
     }
   }
 
   /**
-   * Send text to Pi's stdin
+   * Handle an RPC event from Pi
    */
-  send(text: string): void {
-    if (!this.stdin) {
-      throw new Error('Not connected to Pi');
+  private handleRpcEvent(event: any): void {
+    switch (event.type) {
+      case 'assistant_message':
+        if (event.delta) {
+          this.emit('stream', { type: 'text', content: event.delta });
+        } else if (event.content) {
+          this.emit('stream', { type: 'text', content: event.content });
+        }
+        break;
+      
+      case 'thinking_delta':
+        this.emit('stream', { type: 'thinking', content: event.delta });
+        break;
+
+      case 'tool_use':
+        this.emit('stream', { type: 'tool_use', name: event.name, input: event.input });
+        break;
+
+      case 'tool_result':
+        this.emit('stream', { type: 'tool_result', name: event.name, output: event.output || event.content });
+        break;
+
+      case 'agent_end':
+        this.emit('done');
+        break;
+
+      case 'error':
+        this.emit('error', new Error(event.message || event.error || 'Agent error'));
+        break;
+
+      default:
+        this.emit('message', event);
     }
-    this.stdin.write(text + '\n');
   }
 }

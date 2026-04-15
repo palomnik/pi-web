@@ -40,8 +40,8 @@ export function createTerminalRouter(): Router {
    * GET /api/terminal/shells
    * List available shells
    */
-  router.get('/shells', (req, res) => {
-    const fs = require('fs');
+  router.get('/shells', async (req, res) => {
+    const fs = await import('fs/promises');
     const shells = [
       { name: 'bash', path: '/bin/bash' },
       { name: 'zsh', path: '/bin/zsh' },
@@ -57,14 +57,15 @@ export function createTerminalRouter(): Router {
     const allShells = [...shells, ...additionalShells];
 
     // Check which shells exist and are executable
-    const available = allShells.filter((shell) => {
+    const availablePromises = allShells.map(async (shell) => {
       try {
-        fs.accessSync(shell.path, fs.constants.X_OK);
-        return true;
+        await fs.access(shell.path, fs.constants.X_OK);
+        return shell;
       } catch {
-        return false;
+        return null;
       }
     });
+    const available = (await Promise.all(availablePromises)).filter(Boolean) as typeof shells;
 
     // Deduplicate by name
     const seen = new Set<string>();

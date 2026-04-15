@@ -6,6 +6,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
+  isStreaming?: boolean;
 }
 
 export interface Session {
@@ -33,6 +34,7 @@ interface AppState {
   createSession: () => string;
   setCurrentSession: (id: string) => void;
   addMessage: (sessionId: string, message: Omit<Message, 'id' | 'timestamp'>) => void;
+  updateMessage: (sessionId: string, messageId: string, updates: Partial<Message>) => void;
   deleteSession: (id: string) => void;
 
   // Files
@@ -98,6 +100,20 @@ export const useAppStore = create<AppState>()(
             sessions: state.sessions.map((s) =>
               s.id === sessionId
                 ? { ...s, messages: [...s.messages, newMessage] }
+                : s
+            ),
+          }));
+        },
+        updateMessage: (sessionId, messageId, updates) => {
+          set((state) => ({
+            sessions: state.sessions.map((s) =>
+              s.id === sessionId
+                ? {
+                    ...s,
+                    messages: s.messages.map((m) =>
+                      m.id === messageId ? { ...m, ...updates } : m
+                    ),
+                  }
                 : s
             ),
           }));

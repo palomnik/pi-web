@@ -3,6 +3,12 @@ import { useMemo } from 'react';
 import { Message } from '../../stores/appStore';
 import { User, Bot } from 'lucide-react';
 
+// Configure marked for synchronous rendering
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+});
+
 interface Props {
   message: Message;
 }
@@ -14,7 +20,14 @@ export default function MessageBubble({ message }: Props) {
   // Parse markdown for assistant messages
   const htmlContent = useMemo(() => {
     if (isUser || isSystem) return null;
-    return marked(message.content, { breaks: true });
+    try {
+      const result = marked.parse(message.content);
+      // marked.parse() returns string in sync mode
+      return typeof result === 'string' ? result : '';
+    } catch (err) {
+      console.error('[MessageBubble] Failed to parse markdown:', err);
+      return null;
+    }
   }, [message.content, isUser, isSystem]);
 
   const formatTime = (timestamp: number) => {
@@ -69,6 +82,9 @@ export default function MessageBubble({ message }: Props) {
           } text-pi-text-secondary`}
         >
           {formatTime(message.timestamp)}
+          {message.isStreaming && (
+            <span className="ml-2 animate-pulse-slow">●</span>
+          )}
         </div>
       </div>
     </div>
