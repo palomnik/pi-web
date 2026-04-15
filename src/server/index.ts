@@ -147,8 +147,9 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
     ws.send(JSON.stringify({
       type: 'connected',
       clientId: clientId,
-      piConnected: piBridge.isConnected()
-    }));
+      piConnected: piBridge.isConnected(),
+      cwd: config.pi.cwd
+    }));;
   });
 
   // SPA fallback

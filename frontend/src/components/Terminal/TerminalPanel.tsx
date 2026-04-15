@@ -20,15 +20,21 @@ export default function TerminalPanel() {
     new Map()
   );
   const containerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const cwdRef = useRef<string>('/');
   const pendingCreationRef = useRef<Set<string>>(new Set()); // sessions waiting for server confirmation
 
-  // Get the current working directory from settings or default
-  const cwd = useAppStore((state) => state.currentPath) || '/';
-  cwdRef.current = cwd;
+  // Track Pi's CWD from server (sent in 'connected' message).
+  // Falls back to undefined so the server uses its own default (PI_CWD / config.pi.cwd).
+  const piCwdRef = useRef<string | undefined>(undefined);
 
   // Listen for WebSocket terminal messages
   useEffect(() => {
+    const handleConnected = (data: any) => {
+      // Capture Pi's CWD from the server
+      if (data.cwd) {
+        piCwdRef.current = data.cwd;
+      }
+    };
+
     const handleTerminalCreated = (data: any) => {
       console.log('[Terminal] Session created on server:', data.sessionId);
       // Find a pending local session and map it
@@ -82,12 +88,14 @@ export default function TerminalPanel() {
       console.log('[Terminal] Session killed:', data.sessionId);
     };
 
+    const unsub0 = on('connected', handleConnected);
     const unsub1 = on('terminal-created', handleTerminalCreated);
     const unsub2 = on('terminal-output', handleTerminalOutput);
     const unsub3 = on('terminal-exit', handleTerminalExit);
     const unsub4 = on('terminal-killed', handleTerminalKilled);
 
     return () => {
+      unsub0();
       unsub1();
       unsub2();
       unsub3();
@@ -189,7 +197,7 @@ export default function TerminalPanel() {
           sessionId: sessionId,
           cols: dims?.cols || 80,
           rows: dims?.rows || 24,
-          cwd: cwdRef.current,
+          cwd: piCwdRef.current,
         });
       } else {
         terminal.writeln('\x1b[33mWaiting for WebSocket connection...\x1b[0m');
@@ -221,7 +229,7 @@ export default function TerminalPanel() {
         }
       }
     };
-  }, [terminalSessions, cwd, serverSessions, connected, send]);
+  }, [terminalSessions, serverSessions, connected, send]);
 
   // Send pending terminal-create when WebSocket connects
   useEffect(() => {
@@ -237,7 +245,7 @@ export default function TerminalPanel() {
               sessionId: sessionId,
               cols: dims?.cols || 80,
               rows: dims?.rows || 24,
-              cwd: cwdRef.current,
+              cwd: piCwdRef.current,
             });
           }
         }
