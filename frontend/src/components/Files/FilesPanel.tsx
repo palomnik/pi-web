@@ -6,6 +6,7 @@ import {
   RefreshCw,
   FolderPlus,
   FilePlus,
+  ChevronRight,
 } from 'lucide-react';
 
 export default function FilesPanel() {
@@ -46,11 +47,13 @@ export default function FilesPanel() {
     const name = prompt('Enter folder name:');
     if (!name) return;
 
+    const fullPath = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
+
     try {
       const response = await fetch('/api/files/mkdir', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: `${currentPath}/${name}` }),
+        body: JSON.stringify({ path: fullPath }),
       });
       if (response.ok) {
         fetchFiles();
@@ -64,15 +67,17 @@ export default function FilesPanel() {
     const name = prompt('Enter file name:');
     if (!name) return;
 
+    const fullPath = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
+
     try {
       const response = await fetch('/api/files/write', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: `${currentPath}/${name}`, content: '' }),
+        body: JSON.stringify({ path: fullPath, content: '' }),
       });
       if (response.ok) {
         fetchFiles();
-        setSelectedFile(`${currentPath}/${name}`);
+        setSelectedFile(fullPath);
       }
     } catch (error) {
       console.error('Failed to create file:', error);
@@ -111,6 +116,31 @@ export default function FilesPanel() {
               <FilePlus size={16} />
             </button>
           </div>
+        </div>
+
+        {/* Breadcrumb path */}
+        <div className="px-2 py-1 text-xs text-pi-text-secondary border-b border-pi-border flex items-center gap-1 flex-wrap">
+          <button
+            onClick={() => setCurrentPath('/')}
+            className={`hover:text-pi-text ${currentPath === '/' ? 'text-pi-accent font-medium' : ''}`}
+          >
+            /
+          </button>
+          {currentPath !== '/' && currentPath.split('/').filter(Boolean).map((segment, i, arr) => {
+            const partialPath = '/' + arr.slice(0, i + 1).join('/');
+            const isLast = i === arr.length - 1;
+            return (
+              <span key={partialPath} className="flex items-center gap-1">
+                <ChevronRight size={12} />
+                <button
+                  onClick={() => setCurrentPath(partialPath)}
+                  className={`hover:text-pi-text ${isLast ? 'text-pi-accent font-medium' : ''}`}
+                >
+                  {segment}
+                </button>
+              </span>
+            );
+          })}
         </div>
 
         {/* File tree */}

@@ -77,9 +77,13 @@ export function createFilesRouter(rootDir: string): Router {
             ? await fs.lstat(fullPath)
             : await fs.stat(fullPath);
 
+          // Build relative path from rootDir for the client
+          const relativeFilePath = '/' + relative(rootDir, fullPath);
+
           return {
             name: entry.name,
             type: entry.isDirectory() ? 'directory' : entry.isSymbolicLink() ? 'symlink' : 'file',
+            path: relativeFilePath,
             size: stats.size,
             modified: stats.mtime,
             permissions: stats.mode.toString(8).slice(-3),
