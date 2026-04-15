@@ -1,8 +1,8 @@
 # Pi-Web Interface - Project State Summary
 
-**Last updated:** 2025-04-15
+**Last updated:** 2025-04-16
 **Git status:** All changes committed and pushed to `origin/main` on `https://github.com/palomnik/pi-web.git`
-**Latest commit:** `f3c550c` - "Fix chat to use Pi's running model when running as extension"
+**Latest commit:** `faf118d` - "Fix file manager: include path in API response and add breadcrumb navigation"
 
 ## Architecture
 
@@ -30,6 +30,7 @@ When running as a Pi extension (`/pi-web` command in Pi), the web chat routes me
 12. **INSTALL.md says Ctrl+W but extension registers Ctrl+Shift+W** — Updated docs
 13. **Chat routing in extension mode** — PiBridge auto-connect moved from constructor to `start()` method to avoid race condition with `setChatHandler()`
 14. **Terminal opens at root `/` instead of Pi's CWD** — Server sends CWD in `connected` WebSocket message; frontend sends it as `cwd` for terminal creation
+15. **File manager highlights all files/folders when clicking one** — `/api/files/list` endpoint wasn't returning a `path` field per file, so `file.path` was `undefined` for every item. Clicking any file set `selectedFile = undefined`, making `undefined === undefined` true for all items. Fix: added `path` field to server response (relative path from rootDir). Also fixed double-slash in path construction (`/` + `/name` → `//name`) and added breadcrumb navigation for directory traversal.
 
 ## Chat Flow (Two Modes)
 
@@ -58,6 +59,9 @@ When running as a Pi extension (`/pi-web` command in Pi), the web chat routes me
 | `frontend/src/stores/websocketStore.ts` | Shared WebSocket connection (replaces 3 separate WS) |
 | `frontend/src/components/Chat/ChatPanel.tsx` | Chat UI (uses shared WS) |
 | `frontend/src/components/Terminal/TerminalPanel.tsx` | Terminal UI (xterm.js, uses shared WS) |
+| `frontend/src/components/Files/FilesPanel.tsx` | File browser panel (sidebar + editor) |
+| `frontend/src/components/Files/FileTree.tsx` | Tree view component with expand/collapse |
+| `frontend/src/components/Files/FileEditor.tsx` | Monaco-based file editor/viewer |
 | `fix-perms.cjs` | Fixes node-pty spawn-helper execute permission |
 
 ## Current Test Status
