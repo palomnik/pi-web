@@ -1,8 +1,7 @@
 # Pi-Web Interface - Project State Summary
 
 **Last updated:** 2025-04-16
-**Git status:** All changes committed and pushed to `origin/main` on `https://github.com/palomnik/pi-web.git`
-**Latest commit:** `faf118d` - "Fix file manager: include path in API response and add breadcrumb navigation"
+**Git status:** Auth system implemented, needs commit & push
 
 ## Architecture
 
@@ -10,9 +9,32 @@ Pi-Web is a browser-based interface for the Pi coding agent. It has:
 - **Backend** (Node.js/Express + WebSocket): `src/server/`
 - **Frontend** (React + Vite): `frontend/src/`
 - **Extension** (Pi extension entry point): `src/extension.ts`
+- **Auth system** (token-based login): `src/server/services/auth.ts` + `src/server/routes/auth.ts`
 - **Shared WebSocket store** (Zustand): `frontend/src/stores/websocketStore.ts`
+- **Auth store** (Zustand): `frontend/src/stores/authStore.ts`
+- **Authenticated API helper**: `frontend/src/stores/api.ts`
 
 When running as a Pi extension (`/pi-web` command in Pi), the web chat routes messages through Pi's already-running model via the extension API (`pi.sendUserMessage()` + `pi.on('message_update')`). When running standalone (`npx pi-web`), it spawns `pi --print --mode json` per chat message.
+
+### Authentication System
+
+When started with `--auth` flag or `PI_WEB_AUTH_ENABLED=true`:
+1. **Login page** appears before any UI is accessible
+2. **All API routes** (except `/api/auth/*` and `/api/health`) require Bearer token
+3. **WebSocket connections** require `?token=<jwt>` query parameter
+4. **Token** is obtained via `POST /api/auth/login` with username/password
+5. **Token validity** is 24 hours, stored in-memory on the server
+6. **Credentials** come from `PI_WEB_USERNAME` / `PI_WEB_PASSWORD` env vars (or `.env` file)
+7. **Logout** invalidates the token server-side
+
+Key files:
+- `frontend/src/stores/authStore.ts` — Zustand store: manages token, login/logout, checks status
+- `frontend/src/components/Auth/LoginPage.tsx` — Login form UI
+- `frontend/src/components/Auth/AuthGuard.tsx` — Route guard: checks auth, shows login or app
+- `frontend/src/stores/api.ts` — Authenticated fetch wrapper (adds Bearer token, handles 401)
+- `frontend/src/stores/websocketStore.ts` — Passes auth token as `?token=` on WS connect
+- `src/server/routes/auth.ts` — Login, logout, status endpoints
+- `src/server/services/auth.ts` — AuthService: token generation, validation, cleanup
 
 ## Bugs Fixed (All Committed)
 
@@ -30,7 +52,6 @@ When running as a Pi extension (`/pi-web` command in Pi), the web chat routes me
 12. **INSTALL.md says Ctrl+W but extension registers Ctrl+Shift+W** — Updated docs
 13. **Chat routing in extension mode** — PiBridge auto-connect moved from constructor to `start()` method to avoid race condition with `setChatHandler()`
 14. **Terminal opens at root `/` instead of Pi's CWD** — Server sends CWD in `connected` WebSocket message; frontend sends it as `cwd` for terminal creation
-15. **File manager highlights all files/folders when clicking one** — `/api/files/list` endpoint wasn't returning a `path` field per file, so `file.path` was `undefined` for every item. Clicking any file set `selectedFile = undefined`, making `undefined === undefined` true for all items. Fix: added `path` field to server response (relative path from rootDir). Also fixed double-slash in path construction (`/` + `/name` → `//name`) and added breadcrumb navigation for directory traversal.
 
 ## Chat Flow (Two Modes)
 
@@ -47,6 +68,16 @@ When running as a Pi extension (`/pi-web` command in Pi), the web chat routes me
 2. Print mode: `piBridge.streamChat()` spawns `pi --print --mode json` per message, writes prompt to stdin
 3. JSON output is parsed line-by-line; `text_delta` and `thinking_delta` events are sent as `chat-chunk`
 
+15. **Password protection not working** — Full auth system implemented:
+    - Auth routes: `/api/auth/login`, `/api/auth/status`, `/api/auth/logout`
+    - Auth middleware protects ALL `/api/*` routes (except auth endpoints and health check)
+    - WebSocket connections validated on connect (token as query param)
+    - Frontend: LoginPage component, AuthGuard wrapper, auth Zustand store
+    - Frontend: All fetch() calls use `apiFetch()` which attaches Bearer token
+    - Frontend: WebSocket passes `?token=` on connect when auth is enabled
+    - Frontend: Logout button in sidebar when auth is enabled
+    - Frontend: 401 responses auto-redirect to login page (via AuthGuard + apiFetch)
+
 ## Key Files
 
 | File | Purpose |
@@ -59,9 +90,6 @@ When running as a Pi extension (`/pi-web` command in Pi), the web chat routes me
 | `frontend/src/stores/websocketStore.ts` | Shared WebSocket connection (replaces 3 separate WS) |
 | `frontend/src/components/Chat/ChatPanel.tsx` | Chat UI (uses shared WS) |
 | `frontend/src/components/Terminal/TerminalPanel.tsx` | Terminal UI (xterm.js, uses shared WS) |
-| `frontend/src/components/Files/FilesPanel.tsx` | File browser panel (sidebar + editor) |
-| `frontend/src/components/Files/FileTree.tsx` | Tree view component with expand/collapse |
-| `frontend/src/components/Files/FileEditor.tsx` | Monaco-based file editor/viewer |
 | `fix-perms.cjs` | Fixes node-pty spawn-helper execute permission |
 
 ## Current Test Status

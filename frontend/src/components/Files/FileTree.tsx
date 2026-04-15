@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ChevronDown,
 } from 'lucide-react';
+import { apiFetch } from '../../stores/api';
 
 export interface FileItem {
   name: string;
@@ -77,7 +78,7 @@ export default function FileTree({
       // Fetch children if directory and not already loaded
       if (file?.type === 'directory' && !_childFiles.has(path)) {
         try {
-          const response = await fetch(`/api/files/list?path=${encodeURIComponent(path)}`);
+          const response = await apiFetch(`/api/files/list?path=${encodeURIComponent(path)}`);
           if (response.ok) {
             const data = await response.json();
             setChildFiles((prev) => new Map(prev).set(path, data.files || []));

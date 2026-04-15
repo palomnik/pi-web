@@ -8,6 +8,7 @@ import TerminalPanel from './components/Terminal/TerminalPanel';
 import FilesPanel from './components/Files/FilesPanel';
 import GitHubPanel from './components/GitHub/GitHubPanel';
 import SettingsPage from './components/Settings/SettingsPage';
+import AuthGuard from './components/Auth/AuthGuard';
 
 function App() {
   const { theme, setConnected } = useAppStore();
@@ -37,16 +38,18 @@ function App() {
   }, [connected, setConnected]);
 
   return (
-    <Routes>
-      <Route path="/" element={<Layout />}>
-        <Route index element={<ChatPanel />} />
-        <Route path="chat/*" element={<ChatPanel />} />
-        <Route path="terminal" element={<TerminalPanel />} />
-        <Route path="files" element={<FilesPanel />} />
-        <Route path="github" element={<GitHubPanel />} />
-        <Route path="settings" element={<SettingsPage />} />
-      </Route>
-    </Routes>
+    <AuthGuard>
+      <Routes>
+        <Route path="/" element={<Layout />}>
+          <Route index element={<ChatPanel />} />
+          <Route path="chat/*" element={<ChatPanel />} />
+          <Route path="terminal" element={<TerminalPanel />} />
+          <Route path="files" element={<FilesPanel />} />
+          <Route path="github" element={<GitHubPanel />} />
+          <Route path="settings" element={<SettingsPage />} />
+        </Route>
+      </Routes>
+    </AuthGuard>
   );
 }
 

@@ -1,5 +1,6 @@
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { useAppStore } from '../stores/appStore';
+import { useAuthStore } from '../stores/authStore';
 import {
   MessageSquare,
   Terminal,
@@ -7,6 +8,7 @@ import {
   Github,
   Settings,
   Circle,
+  LogOut,
 } from 'lucide-react';
 
 const navItems = [
@@ -20,6 +22,12 @@ const navItems = [
 export default function Layout() {
   const location = useLocation();
   const { connected } = useAppStore();
+  const { isAuthenticated, authEnabled, logout } = useAuthStore();
+
+  const handleLogout = async () => {
+    await logout();
+    // Page will re-render and AuthGuard will show login page
+  };
 
   return (
     <div className="flex h-screen w-screen bg-pi-bg">
@@ -53,14 +61,28 @@ export default function Layout() {
           })}
         </div>
 
-        {/* Connection status */}
-        <div
-          className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-            connected ? 'text-green-500' : 'text-red-500'
-          }`}
-          title={connected ? 'Connected' : 'Disconnected'}
-        >
-          <Circle size={12} fill="currentColor" />
+        {/* Bottom section: connection + logout */}
+        <div className="flex flex-col items-center gap-2">
+          {/* Connection status */}
+          <div
+            className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+              connected ? 'text-green-500' : 'text-red-500'
+            }`}
+            title={connected ? 'Connected' : 'Disconnected'}
+          >
+            <Circle size={12} fill="currentColor" />
+          </div>
+
+          {/* Logout button (only shown if auth is enabled and user is authenticated) */}
+          {authEnabled && isAuthenticated && (
+            <button
+              onClick={handleLogout}
+              className="w-10 h-10 rounded-lg flex items-center justify-center text-pi-text-secondary hover:bg-pi-bg hover:text-red-400 transition-colors"
+              title="Sign Out"
+            >
+              <LogOut size={18} />
+            </button>
+          )}
         </div>
       </nav>
 

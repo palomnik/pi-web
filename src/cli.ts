@@ -10,6 +10,7 @@
  *   pi-web --auth          # Enable authentication
  */
 
+import 'dotenv/config';
 import { createPiWebServer, PiWebConfig } from './server/index.js';
 
 const args = process.argv.slice(2);
@@ -48,6 +49,9 @@ Environment Variables:
   PI_WEB_HOST     Default host
   PI_WEB_USERNAME Auth username
   PI_WEB_PASSWORD Auth password
+
+  Environment variables can be set in a .env file in the project root.
+  See .env.example for reference.
 
 Examples:
   pi-web                      # Start on port 3300

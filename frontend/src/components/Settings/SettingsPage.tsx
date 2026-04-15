@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../../stores/appStore';
+import { apiFetch } from '../../stores/api';
 import { Save, RotateCcw, Moon, Sun, Monitor } from 'lucide-react';
 
 interface Settings {
@@ -27,7 +28,7 @@ export default function SettingsPage() {
 
   const fetchSettings = async () => {
     try {
-      const response = await fetch('/api/settings');
+      const response = await apiFetch('/api/settings');
       if (response.ok) {
         setSettings(await response.json());
       }
@@ -41,9 +42,8 @@ export default function SettingsPage() {
 
     setSaving(true);
     try {
-      const response = await fetch('/api/settings', {
+      const response = await apiFetch('/api/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
       });
       if (response.ok) {
@@ -61,7 +61,7 @@ export default function SettingsPage() {
     if (!confirm('Reset all settings to defaults?')) return;
 
     try {
-      await fetch('/api/settings/reset', { method: 'POST' });
+      await apiFetch('/api/settings/reset', { method: 'POST' });
       fetchSettings();
     } catch (error) {
       console.error('Failed to reset settings:', error);

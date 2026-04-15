@@ -6,6 +6,7 @@ import {
   Download,
   RefreshCw,
 } from 'lucide-react';
+import { apiFetch } from '../../stores/api';
 
 interface GitStatus {
   branch: string;
@@ -34,8 +35,8 @@ export default function GitHubPanel() {
     setLoading(true);
     try {
       const [statusRes, logRes] = await Promise.all([
-        fetch('/api/github/status'),
-        fetch('/api/github/log?limit=20'),
+        apiFetch('/api/github/status'),
+        apiFetch('/api/github/log?limit=20'),
       ]);
 
       if (statusRes.ok) {
@@ -60,9 +61,8 @@ export default function GitHubPanel() {
     if (!commitMessage.trim()) return;
 
     try {
-      const response = await fetch('/api/github/commit', {
+      const response = await apiFetch('/api/github/commit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: commitMessage, all: true }),
       });
 
@@ -80,7 +80,7 @@ export default function GitHubPanel() {
 
   const handlePush = async () => {
     try {
-      await fetch('/api/github/push', { method: 'POST' });
+      await apiFetch('/api/github/push', { method: 'POST' });
       fetchStatus();
     } catch (error) {
       console.error('Failed to push:', error);
@@ -89,7 +89,7 @@ export default function GitHubPanel() {
 
   const handlePull = async () => {
     try {
-      await fetch('/api/github/pull', { method: 'POST' });
+      await apiFetch('/api/github/pull', { method: 'POST' });
       fetchStatus();
     } catch (error) {
       console.error('Failed to pull:', error);

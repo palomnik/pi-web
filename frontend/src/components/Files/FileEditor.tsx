@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
 import { X, Save, Download, RotateCcw } from 'lucide-react';
+import { apiFetch } from '../../stores/api';
 
 interface Props {
   path: string;
@@ -51,7 +52,7 @@ export default function FileEditor({ path, onClose, onSave }: Props) {
     const fetchContent = async () => {
       setLoading(true);
       try {
-        const response = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`);
+        const response = await apiFetch(`/api/files/read?path=${encodeURIComponent(path)}`);
         if (response.ok) {
           const data = await response.json();
           setContent(data.content || '');
@@ -82,9 +83,8 @@ export default function FileEditor({ path, onClose, onSave }: Props) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const response = await fetch('/api/files/write', {
+      const response = await apiFetch('/api/files/write', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path, content }),
       });
       if (response.ok) {

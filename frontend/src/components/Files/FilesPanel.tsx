@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../../stores/appStore';
+import { apiFetch } from '../../stores/api';
 import FileTree, { FileItem } from './FileTree';
 import FileEditor from './FileEditor';
 import {
@@ -19,7 +20,7 @@ export default function FilesPanel() {
   const fetchFiles = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/files/list?path=${encodeURIComponent(currentPath)}`);
+      const response = await apiFetch(`/api/files/list?path=${encodeURIComponent(currentPath)}`);
       if (response.ok) {
         const data = await response.json();
         setFiles(data.files || []);
@@ -50,9 +51,8 @@ export default function FilesPanel() {
     const fullPath = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
 
     try {
-      const response = await fetch('/api/files/mkdir', {
+      const response = await apiFetch('/api/files/mkdir', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: fullPath }),
       });
       if (response.ok) {
@@ -70,9 +70,8 @@ export default function FilesPanel() {
     const fullPath = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
 
     try {
-      const response = await fetch('/api/files/write', {
+      const response = await apiFetch('/api/files/write', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: fullPath, content: '' }),
       });
       if (response.ok) {

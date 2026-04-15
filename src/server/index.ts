@@ -20,6 +20,7 @@ import { createTerminalRouter } from './routes/terminal.js';
 import { createFilesRouter } from './routes/files.js';
 import { createGitHubRouter } from './routes/github.js';
 import { createSettingsRouter } from './routes/settings.js';
+import { createAuthRouter } from './routes/auth.js';
 
 // Services
 import { SessionManager } from './services/session-manager.js';
@@ -81,10 +82,13 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
   const frontendPath = join(__dirname, '..', '..', 'frontend', 'dist');
   app.use(express.static(frontendPath));
 
+  // Auth routes (always accessible, no auth required)
+  app.use('/api/auth', createAuthRouter(authService));
+
   // Auth middleware for protected routes - MUST be before route handlers
   app.use('/api/*', (req, res, next) => {
-    // Skip auth for health check and login
-    if (req.path === '/health' || req.path === '/auth/login') {
+    // Skip auth for health check and auth endpoints (login/status/logout)
+    if (req.path === '/health' || req.path.startsWith('/auth/')) {
       return next();
     }
     
@@ -121,8 +125,21 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
     });
   });
 
-  // WebSocket handling
+  // WebSocket handling - validate auth token on connection
   wss.on('connection', (ws: WebSocket, req) => {
+    // If auth is enabled, validate the token from the URL query params
+    if (config.auth.enabled) {
+      const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+      const token = url.searchParams.get('token');
+      
+      if (!token || !authService.validateToken(token)) {
+        console.log('[WS] Unauthorized WebSocket connection - closing');
+        ws.send(JSON.stringify({ type: 'auth-error', message: 'Authentication required' }));
+        ws.close(4001, 'Authentication required');
+        return;
+      }
+    }
+    
     // Register client with session manager
     const clientId = sessionManager.registerClient(ws);
     console.log(`[WS] Client connected: ${clientId}`);

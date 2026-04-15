@@ -2,8 +2,10 @@
  * Shared WebSocket manager for the Pi Web frontend.
  * 
  * All components use this single connection instead of creating their own.
+ * When auth is enabled, the token is passed as a query parameter on connection.
  */
 import { create } from 'zustand';
+import { useAuthStore } from './authStore';
 
 type MessageHandler = (data: any) => void;
 
@@ -30,7 +32,12 @@ export const useWebSocket = create<WebSocketState>()((set, get) => ({
     if (existingWs && existingWs.readyState === WebSocket.OPEN) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    const authState = useAuthStore.getState();
+    const token = authState.token;
+    const wsUrl = token
+      ? `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`
+      : `${protocol}//${window.location.host}/ws`;
+    const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       console.log('[WS] Connected');
@@ -41,9 +48,11 @@ export const useWebSocket = create<WebSocketState>()((set, get) => ({
       console.log('[WS] Disconnected');
       set({ connected: false, ws: null });
       
-      // Auto-reconnect after 2 seconds
+      // Auto-reconnect after 2 seconds (only if still authenticated)
       setTimeout(() => {
-        if (!get().ws || get().ws?.readyState !== WebSocket.OPEN) {
+        const authState = useAuthStore.getState();
+        // Only reconnect if authenticated (or auth is disabled)
+        if ((!authState.authEnabled || authState.isAuthenticated) && (!get().ws || get().ws?.readyState !== WebSocket.OPEN)) {
           get().connect();
         }
       }, 2000);
@@ -58,6 +67,13 @@ export const useWebSocket = create<WebSocketState>()((set, get) => ({
         const data = JSON.parse(event.data);
         const { handlers } = get();
         
+        // Handle auth error from server
+        if (data.type === 'auth-error') {
+          console.error('[WS] Auth error from server:', data.message);
+          useAuthStore.getState().logout();
+          return;
+        }
+
         // Handle connected message
         if (data.type === 'connected') {
           set({ clientId: data.clientId });
