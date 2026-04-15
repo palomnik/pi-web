@@ -165,20 +165,9 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
 
   let serverRunning = false;
 
-  // Connect to Pi for chat when running standalone.
-  // When running as a Pi extension (PI_SESSION=1), the chat handler is set
-  // via setChatHandler() instead, so we skip auto-connecting.
-  const isExtensionMode = !!process.env.PI_SESSION;
-  if (!isExtensionMode) {
-    piBridge.connect().then(() => {
-      console.log('[Pi Web] Connected to Pi');
-    }).catch((err) => {
-      console.log('[Pi Web] Could not connect to Pi:', err.message);
-      console.log('[Pi Web] Chat will be limited. Start Pi CLI for full functionality.');
-    });
-  } else {
-    console.log('[Pi Web] Running as Pi extension. Chat will use Pi\'s running model.');
-  }
+  // Note: PiBridge auto-connect is deferred to the start() method.
+  // This ensures that setChatHandler() called after creation (but before start())
+  // takes precedence over auto-connecting.
 
   return {
     config,
@@ -190,6 +179,21 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
     authService,
     
     async start() {
+      // If no external chat handler has been set and not in extension mode,
+      // try to connect to Pi for standalone chat functionality.
+      if (!piBridge.isConnected() && !config.pi.env.PI_SESSION) {
+        piBridge.connect().then(() => {
+          console.log('[Pi Web] Connected to Pi');
+        }).catch((err) => {
+          console.log('[Pi Web] Could not connect to Pi:', err.message);
+          console.log('[Pi Web] Chat will be limited. Start Pi CLI for full functionality.');
+        });
+      } else if (piBridge.isConnected()) {
+        console.log('[Pi Web] Chat handler already configured.');
+      } else {
+        console.log('[Pi Web] Running as Pi extension. Chat will use Pi\'s running model.');
+      }
+
       return new Promise((resolve, reject) => {
         httpServer.once('error', (err: NodeJS.ErrnoException) => {
           if (err.code === 'EADDRINUSE') {
