@@ -165,15 +165,20 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
 
   let serverRunning = false;
 
-  // Always try to connect to Pi on startup.
-  // When running as extension: connect to Pi as a child process for web chat.
-  // When running standalone: connect to Pi for chat.
-  piBridge.connect().then(() => {
-    console.log('[Pi Web] Connected to Pi');
-  }).catch((err) => {
-    console.log('[Pi Web] Could not connect to Pi:', err.message);
-    console.log('[Pi Web] Chat will be limited. Start Pi CLI for full functionality.');
-  });
+  // Connect to Pi for chat when running standalone.
+  // When running as a Pi extension (PI_SESSION=1), the chat handler is set
+  // via setChatHandler() instead, so we skip auto-connecting.
+  const isExtensionMode = !!process.env.PI_SESSION;
+  if (!isExtensionMode) {
+    piBridge.connect().then(() => {
+      console.log('[Pi Web] Connected to Pi');
+    }).catch((err) => {
+      console.log('[Pi Web] Could not connect to Pi:', err.message);
+      console.log('[Pi Web] Chat will be limited. Start Pi CLI for full functionality.');
+    });
+  } else {
+    console.log('[Pi Web] Running as Pi extension. Chat will use Pi\'s running model.');
+  }
 
   return {
     config,

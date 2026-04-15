@@ -4,8 +4,12 @@
  * This extension adds /pi-web commands to the Pi coding agent CLI.
  * It allows controlling the web interface from within Pi.
  * 
+ * When running as a Pi extension, chat messages from the web interface
+ * are routed through Pi's already-running model (not spawning a new process).
+ * This means the web chat uses the same session, model, and context as Pi.
+ * 
  * Installation:
- *   pi install @anthropic/pi-web
+ *   pi install github:palomnik/pi-web
  * 
  * Then run `/reload` in Pi to load the extension.
  * 
@@ -25,6 +29,7 @@
 import type { ExtensionFactory } from '@mariozechner/pi-coding-agent';
 import type { PiWebConfig, PiWebServer } from './server/index.js';
 import { createPiWebServer } from './server/index.js';
+import type { StreamChunk } from './server/services/pi-bridge.js';
 
 // Global server instance
 let server: PiWebServer | null = null;
@@ -220,6 +225,12 @@ const piWebExtension: ExtensionFactory = (pi) => {
 
         // Create and start server
         server = createPiWebServer(serverConfig);
+        
+        // Set up the chat handler so web chat goes through Pi's running model
+        server.setChatHandler((content, sessionId, onChunk) => {
+          return handleWebChat(pi, content, sessionId, onChunk);
+        });
+        
         await server.start();
 
         ctx.ui.notify(`Pi Web started at http://${serverConfig.host}:${serverConfig.port}`, 'info');
@@ -227,13 +238,17 @@ const piWebExtension: ExtensionFactory = (pi) => {
         // Show status in footer
         ctx.ui.setStatus('pi-web', `\u{1F310} Web: ${serverConfig.port}`);
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error); if (errorMessage.includes('already in use')) { ctx.ui.notify(`Pi Web port ${serverConfig?.port || 3300} is already in use. Is another instance running?`, 'error'); } else { ctx.ui.notify(`Failed to start Pi Web: ${error}`, 'error'); }
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes('already in use')) {
+          ctx.ui.notify(`Pi Web port ${serverConfig?.port || 3300} is already in use. Is another instance running?`, 'error');
+        } else {
+          ctx.ui.notify(`Failed to start Pi Web: ${error}`, 'error');
+        }
       }
     },
   });
 
   // Register a keyboard shortcut to toggle the web interface
-  // Note: Using ctrl+shift+w to avoid conflict with built-in ctrl+w (deleteWordBackward)
   pi.registerShortcut('ctrl+shift+w', {
     description: 'Toggle Pi Web interface',
     handler: async (ctx) => {
@@ -248,6 +263,9 @@ const piWebExtension: ExtensionFactory = (pi) => {
         process.env.PI_CWD = ctx.cwd;
         process.env.PI_SESSION = '1';
         server = createPiWebServer(serverConfig);
+        server.setChatHandler((content, sessionId, onChunk) => {
+          return handleWebChat(pi, content, sessionId, onChunk);
+        });
         await server.start();
         ctx.ui.notify(`Pi Web started at http://${serverConfig.host}:${serverConfig.port}`, 'info');
         ctx.ui.setStatus('pi-web', `\u{1F310} Web: ${serverConfig.port}`);
@@ -274,6 +292,9 @@ const piWebExtension: ExtensionFactory = (pi) => {
           process.env.PI_CWD = ctx.cwd;
           process.env.PI_SESSION = '1';
           server = createPiWebServer(serverConfig);
+          server.setChatHandler((content, sessionId, onChunk) => {
+            return handleWebChat(pi, content, sessionId, onChunk);
+          });
           await server.start();
           ctx.ui.setStatus('pi-web', `\u{1F310} Web: ${serverConfig.port}`);
           console.log(`[Pi Web] Server started at http://${serverConfig.host}:${serverConfig.port}`);
@@ -292,6 +313,119 @@ const piWebExtension: ExtensionFactory = (pi) => {
     }
   });
 };
+
+/**
+ * Handle a chat message from the web interface by routing it through Pi's
+ * already-running agent. This uses Pi's extension API to:
+ * 1. Listen for streaming events (message updates, tool calls, etc.)
+ * 2. Send the user message via pi.sendUserMessage()
+ * 3. Forward the streaming response back to the web client
+ */
+async function handleWebChat(
+  pi: any,
+  content: string,
+  sessionId: string | null,
+  onChunk: (chunk: StreamChunk) => void
+): Promise<void> {
+  // We need to track which events belong to this chat request
+  // since Pi is a single-user system, we can capture all events
+  // that arrive after sending the message
+  
+  let resolved = false;
+  
+  const cleanup = () => {
+    if (resolved) return;
+    resolved = true;
+    try { pi.off('message_update', onMessageUpdate); } catch {}
+    try { pi.off('message_end', onMessageEnd); } catch {}
+    try { pi.off('agent_end', onAgentEnd); } catch {}
+    try { pi.off('turn_end', onTurnEnd); } catch {}
+  };
+
+  const onMessageUpdate = (event: any) => {
+    if (resolved) return;
+    
+    const assistantEvent = event.assistantMessageEvent;
+    if (!assistantEvent) return;
+    
+    switch (assistantEvent.type) {
+      case 'text_delta':
+        if (assistantEvent.delta) {
+          onChunk({ type: 'text', content: assistantEvent.delta });
+        }
+        break;
+      case 'thinking_delta':
+        if (assistantEvent.delta) {
+          onChunk({ type: 'thinking', content: assistantEvent.delta });
+        }
+        break;
+      case 'thinking_start':
+        // Thinking block started
+        break;
+      case 'thinking_end':
+        // Thinking block ended - send the full thinking content
+        if (assistantEvent.content) {
+          onChunk({ type: 'thinking', content: `\n${assistantEvent.content}\n` });
+        }
+        break;
+      case 'text_start':
+        // Text block started
+        break;
+      case 'text_end':
+        // Text block completed
+        break;
+      case 'toolcall_start':
+      case 'toolcall_delta':
+        break;
+      case 'toolcall_end':
+        if (assistantEvent.toolCall) {
+          onChunk({ 
+            type: 'tool_use', 
+            name: assistantEvent.toolCall.name, 
+            input: assistantEvent.toolCall.arguments 
+          });
+        }
+        break;
+    }
+  };
+
+  const onMessageEnd = (event: any) => {
+    // Message fully received
+  };
+
+  const onTurnEnd = (event: any) => {
+    // Turn complete - the agent has finished responding
+    onChunk({ type: 'done' });
+    cleanup();
+  };
+
+  const onAgentEnd = (event: any) => {
+    // Agent has finished
+    if (!resolved) {
+      onChunk({ type: 'done' });
+      cleanup();
+    }
+  };
+
+  // Register event listeners
+  pi.on('message_update', onMessageUpdate);
+  pi.on('message_end', onMessageEnd);
+  pi.on('turn_end', onTurnEnd);
+  pi.on('agent_end', onAgentEnd);
+
+  // Send the user message through Pi's running agent
+  // This triggers Pi to process the message and stream back events
+  pi.sendUserMessage(content);
+
+  // Safety timeout - if we don't get events within 3 minutes, end the stream
+  setTimeout(() => {
+    if (!resolved) {
+      onChunk({ type: 'error', content: 'Response timed out' });
+      onChunk({ type: 'done' });
+      cleanup();
+    }
+  }, 180000);
+}
 
 export default piWebExtension;
 
