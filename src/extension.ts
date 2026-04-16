@@ -26,6 +26,20 @@
  *   pi --web         - Start Pi with web interface enabled
  */
 
+import { config as dotenvConfig } from 'dotenv';
+import { existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
+
+// Load .env from ~/.pi/ first, then fall back to cwd
+// This MUST happen before any other imports that might read env vars.
+const piEnvPath = join(homedir(), '.pi', '.env');
+if (existsSync(piEnvPath)) {
+  dotenvConfig({ path: piEnvPath });
+} else if (existsSync(join(process.cwd(), '.env'))) {
+  dotenvConfig(); // loads from cwd
+}
+
 import type { ExtensionFactory } from '@mariozechner/pi-coding-agent';
 import type { PiWebConfig, PiWebServer } from './server/index.js';
 import { createPiWebServer } from './server/index.js';
@@ -44,6 +58,8 @@ function getDefaultConfig(): PiWebConfig {
     host: 'localhost',
     auth: {
       enabled: true, // Auth ON by default for security
+      username: process.env.PI_WEB_USERNAME,
+      password: process.env.PI_WEB_PASSWORD,
     },
     pi: {
       cwd: process.cwd(),
@@ -53,7 +69,9 @@ function getDefaultConfig(): PiWebConfig {
 }
 
 /**
- * Load configuration from file
+ * Load configuration from file, with environment variable fallbacks.
+ * Config file values take precedence, but env vars (from ~/.pi/.env)
+ * are used as fallbacks for auth credentials when not specified in the file.
  */
 async function loadConfig(): Promise<PiWebConfig> {
   const fs = await import('fs/promises');
@@ -61,11 +79,27 @@ async function loadConfig(): Promise<PiWebConfig> {
   const os = await import('os');
   const configPath = path.join(os.homedir(), '.pi', 'web-config.json');
 
+  const defaults = getDefaultConfig();
+
   try {
     const data = await fs.readFile(configPath, 'utf-8');
-    return { ...getDefaultConfig(), ...JSON.parse(data) };
+    const fileConfig = JSON.parse(data);
+    const merged: PiWebConfig = { ...defaults, ...fileConfig };
+
+    // Merge auth config specially: env vars serve as fallbacks
+    if (fileConfig.auth) {
+      merged.auth = {
+        ...defaults.auth,
+        ...fileConfig.auth,
+        // Config file values take precedence; fall back to env vars
+        username: fileConfig.auth.username || process.env.PI_WEB_USERNAME,
+        password: fileConfig.auth.password || process.env.PI_WEB_PASSWORD,
+      };
+    }
+
+    return merged;
   } catch {
-    return getDefaultConfig();
+    return defaults;
   }
 }
 
