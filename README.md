@@ -1,5 +1,7 @@
 # Pi Web Interface
 
+![](Pi-Web-Interface1.png) ![](Pi-Web-Interface2.png) ![](Pi-Web-Interface3.png)
+
 **WARNING: This package is expermental / in development and may have serious security issues. It will run on localhost.  Do not make it more widely available without either a tunnel like Tailscale or SSH. Through the web interface, you can access everything that you can access via the pi coding agent CLI.  Use at your own risk.**
 
 A modern web interface for the Pi coding agent CLI. Provides browser-based access to Pi's capabilities including chat, terminal, file management, and GitHub integration.
