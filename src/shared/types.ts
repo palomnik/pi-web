@@ -56,6 +56,8 @@ export interface WebConfig {
       username?: string;
     };
     theme: 'light' | 'dark' | 'system';
+    repoPageUrl?: string;
+    repoRemoteUrl?: string;
   };
 }
 

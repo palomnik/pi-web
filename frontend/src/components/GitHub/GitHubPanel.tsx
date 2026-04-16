@@ -5,6 +5,7 @@ import {
   Upload,
   Download,
   RefreshCw,
+  ExternalLink,
 } from 'lucide-react';
 import { apiFetch } from '../../stores/api';
 
@@ -30,6 +31,23 @@ export default function GitHubPanel() {
   const [loading, setLoading] = useState(true);
   const [commitMessage, setCommitMessage] = useState('');
   const [commitError, setCommitError] = useState<string | null>(null);
+  const [repoPageUrl, setRepoPageUrl] = useState('');
+  const [repoRemoteUrl, setRepoRemoteUrl] = useState('');
+
+  const fetchRepoSettings = async () => {
+    try {
+      const res = await apiFetch('/api/settings');
+      if (res.ok) {
+        const data = await res.json();
+        setRepoPageUrl(data.web?.repoPageUrl || '');
+        setRepoRemoteUrl(data.web?.repoRemoteUrl || '');
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchRepoSettings();
+  }, []);
 
   const fetchStatus = async () => {
     setLoading(true);
@@ -129,6 +147,17 @@ export default function GitHubPanel() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {repoPageUrl && (
+            <a
+              href={repoPageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-1.5 rounded hover:bg-pi-bg-secondary"
+              title="Open repository in browser"
+            >
+              <ExternalLink size={16} />
+            </a>
+          )}
           <button
             onClick={fetchStatus}
             className="p-1.5 rounded hover:bg-pi-bg-secondary"
@@ -159,6 +188,38 @@ export default function GitHubPanel() {
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-4">
+          {/* Remote Info */}
+          {(repoPageUrl || repoRemoteUrl) && (
+            <section className="mb-6">
+              <h2 className="text-sm font-semibold text-pi-text-secondary mb-2">
+                Repository
+              </h2>
+              <div className="bg-pi-bg-secondary rounded-lg p-3 space-y-1">
+                {repoPageUrl && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-pi-text-secondary w-20 shrink-0">Page</span>
+                    <a
+                      href={repoPageUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-pi-accent hover:underline truncate flex-1"
+                    >
+                      {repoPageUrl}
+                    </a>
+                  </div>
+                )}
+                {repoRemoteUrl && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-pi-text-secondary w-20 shrink-0">Remote</span>
+                    <span className="truncate flex-1 font-mono text-xs" title={repoRemoteUrl}>
+                      {repoRemoteUrl}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
           {/* Changes */}
           {status?.status && status.status.length > 0 && (
             <section className="mb-6">

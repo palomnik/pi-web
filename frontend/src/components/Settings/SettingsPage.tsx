@@ -13,6 +13,8 @@ interface Settings {
       username?: string;
     };
     theme: 'light' | 'dark' | 'system';
+    repoPageUrl?: string;
+    repoRemoteUrl?: string;
   };
 }
 
@@ -217,6 +219,64 @@ export default function SettingsPage() {
                     />
                   </div>
                 )}
+              </div>
+            </section>
+          )}
+
+          {/* Git Repository */}
+          {settings && (
+            <section>
+              <h2 className="text-lg font-semibold mb-4">Git Repository</h2>
+              <div className="bg-pi-bg-secondary rounded-lg p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Repository Page URL
+                  </label>
+                  <p className="text-xs text-pi-text-secondary mb-2">
+                    The browsable web page for your repository (e.g., https://github.com/user/repo)
+                  </p>
+                  <input
+                    type="url"
+                    value={settings.web.repoPageUrl || ''}
+                    onChange={(e) =>
+                      updateSettings({
+                        web: { ...settings.web, repoPageUrl: e.target.value },
+                      })
+                    }
+                    className="w-full bg-pi-bg border border-pi-border rounded px-3 py-2 focus:outline-none focus:border-pi-accent"
+                    placeholder="https://github.com/user/repo"
+                  />
+                  {settings.web.repoPageUrl && (
+                    <a
+                      href={settings.web.repoPageUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-pi-accent text-sm hover:underline mt-1 inline-block"
+                    >
+                      Open in browser →
+                    </a>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Git Remote URL
+                  </label>
+                  <p className="text-xs text-pi-text-secondary mb-2">
+                    The git remote URL for cloning/pushing (e.g., https://github.com/user/repo.git)
+                  </p>
+                  <input
+                    type="url"
+                    value={settings.web.repoRemoteUrl || ''}
+                    onChange={(e) =>
+                      updateSettings({
+                        web: { ...settings.web, repoRemoteUrl: e.target.value },
+                      })
+                    }
+                    className="w-full bg-pi-bg border border-pi-border rounded px-3 py-2 focus:outline-none focus:border-pi-accent"
+                    placeholder="https://github.com/user/repo.git"
+                  />
+                </div>
               </div>
             </section>
           )}

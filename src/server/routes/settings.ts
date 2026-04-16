@@ -21,6 +21,8 @@ export interface WebConfig {
       username?: string;
     };
     theme: 'light' | 'dark' | 'system';
+    repoPageUrl?: string;
+    repoRemoteUrl?: string;
   };
 }
 
@@ -33,6 +35,8 @@ const DEFAULT_CONFIG: WebConfig = {
       enabled: false,
     },
     theme: 'system',
+    repoPageUrl: '',
+    repoRemoteUrl: '',
   },
 };
 
