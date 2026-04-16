@@ -31,8 +31,14 @@ export const useWebSocket = create<WebSocketState>()((set, get) => ({
     const { ws: existingWs } = get();
     if (existingWs && existingWs.readyState === WebSocket.OPEN) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    // SECURITY: Don't connect WebSocket unless authenticated
     const authState = useAuthStore.getState();
+    if (authState.authEnabled !== false && !authState.isAuthenticated) {
+      // Not authenticated — don't open a WebSocket
+      return;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const token = authState.token;
     const wsUrl = token
       ? `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`

@@ -86,14 +86,29 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
   app.use('/api/auth', createAuthRouter(authService));
 
   // Auth middleware for protected routes - MUST be before route handlers
+  // SECURITY: If auth is enabled, ALL /api/* endpoints (except /auth/*) require a valid token.
+  // If auth is enabled but credentials are not configured, ALL requests are denied —
+  // this prevents the server from operating in an insecure half-configured state.
   app.use('/api/*', (req, res, next) => {
-    // Skip auth for health check and auth endpoints (login/status/logout)
+    // Skip auth for health check and auth endpoints
     if (req.path === '/health' || req.path.startsWith('/auth/')) {
       return next();
     }
     
     if (!config.auth.enabled) {
-      return next();
+      // Auth not enabled — deny all API access for security
+      return res.status(403).json({ 
+        error: 'Authentication is not enabled. Access denied.',
+        code: 'AUTH_DISABLED'
+      });
+    }
+
+    if (!authService.hasCredentials()) {
+      // Auth enabled but no credentials — deny all API access
+      return res.status(503).json({ 
+        error: 'Authentication is enabled but no credentials are configured. Set PI_WEB_USERNAME and PI_WEB_PASSWORD.',
+        code: 'NO_CREDENTIALS'
+      });
     }
     
     const authHeader = req.headers.authorization;
@@ -103,7 +118,7 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
     
     const token = authHeader.replace('Bearer ', '');
     if (!authService.validateToken(token)) {
-      return res.status(401).json({ error: 'Invalid token' });
+      return res.status(401).json({ error: 'Invalid or expired token' });
     }
     
     next();
@@ -127,17 +142,30 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
 
   // WebSocket handling - validate auth token on connection
   wss.on('connection', (ws: WebSocket, req) => {
-    // If auth is enabled, validate the token from the URL query params
-    if (config.auth.enabled) {
-      const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-      const token = url.searchParams.get('token');
-      
-      if (!token || !authService.validateToken(token)) {
-        console.log('[WS] Unauthorized WebSocket connection - closing');
-        ws.send(JSON.stringify({ type: 'auth-error', message: 'Authentication required' }));
-        ws.close(4001, 'Authentication required');
-        return;
-      }
+    // SECURITY: If auth is enabled, validate the token from the URL query params
+    // If auth is disabled, deny connection entirely — no unauthenticated access
+    if (!config.auth.enabled) {
+      console.log('[WS] Rejected WebSocket connection: authentication is not enabled');
+      ws.send(JSON.stringify({ type: 'auth-error', message: 'Authentication is not enabled. Access denied.' }));
+      ws.close(4003, 'Authentication not enabled');
+      return;
+    }
+
+    if (config.auth.enabled && !authService.hasCredentials()) {
+      console.log('[WS] Rejected WebSocket connection: no credentials configured');
+      ws.send(JSON.stringify({ type: 'auth-error', message: 'No credentials configured. Access denied.' }));
+      ws.close(4003, 'No credentials configured');
+      return;
+    }
+
+    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const token = url.searchParams.get('token');
+    
+    if (!token || !authService.validateToken(token)) {
+      console.log('[WS] Unauthorized WebSocket connection - closing');
+      ws.send(JSON.stringify({ type: 'auth-error', message: 'Authentication required' }));
+      ws.close(4001, 'Authentication required');
+      return;
     }
     
     // Register client with session manager
@@ -181,6 +209,42 @@ export function createPiWebServer(config: PiWebConfig): PiWebServer {
   });
 
   let serverRunning = false;
+
+  // SECURITY: Validate auth configuration at startup
+  if (!config.auth.enabled) {
+    console.error('');
+    console.error('╔══════════════════════════════════════════════════════════════╗');
+    console.error('║  ⚠  SECURITY WARNING: Authentication is NOT enabled!        ║');
+    console.error('║                                                            ║');
+    console.error('║  The server will start, but ALL access is denied until     ║');
+    console.error('║  authentication is properly configured.                    ║');
+    console.error('║                                                            ║');
+    console.error('║  To enable auth:                                           ║');
+    console.error('║    1. Set in .env:                                         ║');
+    console.error('║         PI_WEB_USERNAME=<your_username>                       ║');
+    console.error('║         PI_WEB_PASSWORD=<your_password>                       ║');
+    console.error('║    2. Start with --auth flag                               ║');
+    console.error('╚══════════════════════════════════════════════════════════════╝');
+    console.error('');
+  } else if (!authService.hasCredentials()) {
+    console.error('');
+    console.error('╔══════════════════════════════════════════════════════════════╗');
+    console.error('║  ⚠  SECURITY WARNING: Authentication is enabled, but      ║');
+    console.error('║     NO CREDENTIALS are configured!                         ║');
+    console.error('║                                                            ║');
+    console.error('║  Login will be IMPOSSIBLE until credentials are set.       ║');
+    console.error('║                                                            ║');
+    console.error('║  Set in .env:                                              ║');
+    console.error('║    PI_WEB_USERNAME=<your_username>                           ║');
+    console.error('║    PI_WEB_PASSWORD=<your_password>                           ║');
+    console.error('║                                                            ║');
+    console.error('║  Or in ~/.pi/web-config.json:                              ║');
+    console.error('║    { "auth": { "username": "...", "password": "..." } }   ║');
+    console.error('╚══════════════════════════════════════════════════════════════╝');
+    console.error('');
+  } else {
+    console.log('[Pi Web] ✓ Authentication enabled and credentials configured');
+  }
 
   // Note: PiBridge auto-connect is deferred to the start() method.
   // This ensures that setChatHandler() called after creation (but before start())

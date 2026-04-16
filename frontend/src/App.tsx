@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { useAppStore } from './stores/appStore';
 import { useWebSocket } from './stores/websocketStore';
+import { useAuthStore } from './stores/authStore';
 import Layout from './components/Layout';
 import ChatPanel from './components/Chat/ChatPanel';
 import TerminalPanel from './components/Terminal/TerminalPanel';
@@ -13,6 +14,7 @@ import AuthGuard from './components/Auth/AuthGuard';
 function App() {
   const { theme, setConnected } = useAppStore();
   const { connect, disconnect, connected } = useWebSocket();
+  const { isAuthenticated } = useAuthStore();
 
   // Apply theme on mount
   useEffect(() => {
@@ -24,13 +26,17 @@ function App() {
     }
   }, [theme]);
 
-  // Connect shared WebSocket on mount
+  // Connect shared WebSocket on mount, but only when authenticated
   useEffect(() => {
-    connect();
+    const authState = useAuthStore.getState();
+    // Only connect if authenticated (or auth is not the blocker)
+    if (authState.isAuthenticated) {
+      connect();
+    }
     return () => {
       disconnect();
     };
-  }, [connect, disconnect]);
+  }, [connect, disconnect, isAuthenticated]);
 
   // Sync connection state
   useEffect(() => {

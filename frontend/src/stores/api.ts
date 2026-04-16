@@ -2,17 +2,20 @@
  * Authenticated fetch utility
  * 
  * Wraps the native fetch function to automatically include the auth token
- * in API requests and handle 401 responses (expired/invalid token).
+ * in API requests and handle authentication failures.
+ * 
+ * SECURITY: On 401 (invalid token), 403 (auth disabled), or 503 (no credentials),
+ * clears auth state to force re-authentication. Access is never silently granted.
  */
 import { useAuthStore } from './authStore';
 
 /**
  * Make an authenticated API request.
- * Automatically includes the Bearer token if auth is enabled.
- * On 401 response, clears auth state to trigger re-login.
+ * Automatically includes the Bearer token.
+ * On auth failure, clears auth state to enforce re-login.
  */
 export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const { token, authEnabled } = useAuthStore.getState();
+  const { token } = useAuthStore.getState();
 
   const headers = new Headers(options.headers || {});
   
@@ -21,8 +24,8 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
     headers.set('Content-Type', 'application/json');
   }
 
-  // Add auth token if available and auth is enabled
-  if (authEnabled && token) {
+  // Add auth token if available
+  if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
 
@@ -31,9 +34,23 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
     headers,
   });
 
-  // If we get a 401, the token is invalid — clear auth state to trigger re-login
-  if (response.status === 401 && authEnabled) {
-    useAuthStore.getState().logout();
+  // On any auth failure, clear state to trigger re-auth
+  // 401 = invalid/expired token
+  // 403 = auth disabled on server
+  // 503 = credentials not configured
+  if (response.status === 401 || response.status === 403 || (response.status === 503)) {
+    const authState = useAuthStore.getState();
+    // Don't fully logout on 403/503 — just clear token
+    // (the AuthGuard will show the appropriate warning)
+    if (response.status === 401) {
+      authState.logout();
+    } else {
+      // For 403/503, update status to reflect server state
+      useAuthStore.setState({ 
+        token: null, 
+        isAuthenticated: false 
+      });
+    }
   }
 
   return response;

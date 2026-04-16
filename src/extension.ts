@@ -43,7 +43,7 @@ function getDefaultConfig(): PiWebConfig {
     port: 3300,
     host: 'localhost',
     auth: {
-      enabled: false,
+      enabled: true, // Auth ON by default for security
     },
     pi: {
       cwd: process.cwd(),

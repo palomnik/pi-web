@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 
 export default function LoginPage() {
-  const { login, isLoading, error, clearError } = useAuthStore();
+  const { login, isLoading, error, errorCode, clearError } = useAuthStore();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   // Clear error when user starts typing
   useEffect(() => {
@@ -31,10 +32,28 @@ export default function LoginPage() {
 
         {/* Login Form */}
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Error message */}
+          {/* Error message — tailored to the type of failure */}
           {error && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">
-              {error}
+            <div className={`border rounded-lg px-4 py-3 text-sm ${
+              errorCode === 'AUTH_DISABLED' 
+                ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                : errorCode === 'NO_CREDENTIALS'
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                : 'bg-red-500/10 border-red-500/30 text-red-400'
+            }`}>
+              {errorCode === 'AUTH_DISABLED' ? (
+                <div className="space-y-1">
+                  <div className="font-semibold">🔒 Authentication Not Enabled</div>
+                  <div>The server is not enforcing authentication. Access is denied for security.</div>
+                </div>
+              ) : errorCode === 'NO_CREDENTIALS' ? (
+                <div className="space-y-1">
+                  <div className="font-semibold">⚠ No Credentials Configured</div>
+                  <div>The server has no login credentials set up. Please configure PI_WEB_USERNAME and PI_WEB_PASSWORD.</div>
+                </div>
+              ) : (
+                <div>{error}</div>
+              )}
             </div>
           )}
 
@@ -60,15 +79,25 @@ export default function LoginPage() {
             <label htmlFor="password" className="block text-sm font-medium text-pi-text-secondary mb-2">
               Password
             </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter password"
-              autoComplete="current-password"
-              className="w-full bg-pi-bg border border-pi-border rounded-lg px-4 py-3 text-pi-text placeholder-pi-text-secondary/50 focus:outline-none focus:border-pi-accent transition-colors"
-            />
+            <div className="relative">
+              <input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter password"
+                autoComplete="current-password"
+                className="w-full bg-pi-bg border border-pi-border rounded-lg px-4 py-3 pr-12 text-pi-text placeholder-pi-text-secondary/50 focus:outline-none focus:border-pi-accent transition-colors"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-pi-text-secondary hover:text-pi-text transition-colors text-sm"
+                tabIndex={-1}
+              >
+                {showPassword ? '🙈' : '👁'}
+              </button>
+            </div>
           </div>
 
           {/* Submit */}
@@ -88,8 +117,16 @@ export default function LoginPage() {
           </button>
         </form>
 
+        {/* Security notice */}
+        <div className="mt-6 text-center">
+          <div className="inline-flex items-center gap-1.5 text-xs text-pi-text-secondary">
+            <span>🔒</span>
+            <span>Access requires valid credentials</span>
+          </div>
+        </div>
+
         {/* Footer */}
-        <p className="text-center text-xs text-pi-text-secondary mt-8">
+        <p className="text-center text-xs text-pi-text-secondary mt-4">
           Pi Web Interface • Secure Connection
         </p>
       </div>

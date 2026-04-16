@@ -10,7 +10,18 @@
  *   pi-web --auth          # Enable authentication
  */
 
-import 'dotenv/config';
+import { config as dotenvConfig } from 'dotenv';
+import { existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
+
+// Load .env from ~/.pi/ first, then fall back to cwd
+const piEnvPath = join(homedir(), '.pi', '.env');
+if (existsSync(piEnvPath)) {
+  dotenvConfig({ path: piEnvPath });
+} else if (existsSync(join(process.cwd(), '.env'))) {
+  dotenvConfig(); // loads from cwd
+}
 import { createPiWebServer, PiWebConfig } from './server/index.js';
 
 const args = process.argv.slice(2);
@@ -47,17 +58,19 @@ Options:
 Environment Variables:
   PI_WEB_PORT     Default port
   PI_WEB_HOST     Default host
-  PI_WEB_USERNAME Auth username
-  PI_WEB_PASSWORD Auth password
+  PI_WEB_USERNAME Auth username (REQUIRED for login)
+  PI_WEB_PASSWORD Auth password (REQUIRED for login)
 
-  Environment variables can be set in a .env file in the project root.
+  Primary:   ~/.pi/.env
+  Fallback:  .env in current working directory
   See .env.example for reference.
 
 Examples:
-  pi-web                      # Start on port 3300
+  pi-web                      # Start on port 3300 (auth enabled by default)
+  pi-web --no-auth            # Start WITHOUT auth (NOT recommended)
   pi-web 8080                 # Start on port 8080
   pi-web --host 0.0.0.0       # Bind to all interfaces
-  pi-web --port 8080 --auth   # Port 8080 with auth
+  pi-web --port 8080 --auth   # Explicitly enable auth
 `);
       process.exit(0);
     } else if (/^\d+$/.test(arg)) {
@@ -76,7 +89,7 @@ async function main() {
     port: parsedArgs.port || parseInt(process.env.PI_WEB_PORT || '3300', 10),
     host: parsedArgs.host || process.env.PI_WEB_HOST || 'localhost',
     auth: {
-      enabled: parsedArgs.auth?.enabled ?? false,
+      enabled: parsedArgs.auth?.enabled ?? true, // Auth ON by default for security
       username: process.env.PI_WEB_USERNAME,
       password: process.env.PI_WEB_PASSWORD,
     },
